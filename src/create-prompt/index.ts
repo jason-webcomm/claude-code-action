@@ -17,13 +17,70 @@ import {
 } from "../github/context";
 import type { GiteaContext } from "../github/context";
 import type { CommonFields, PreparedContext, EventData } from "./types";
-import { GITEA_SERVER_URL } from "../github/api/config";
+import { GITEA_SERVER_URL, GITEA_API_URL } from "../github/api/config";
 import type { Mode, ModeContext } from "../modes/types";
 import { extractUserRequest } from "../utils/extract-user-request";
 export type { CommonFields, PreparedContext } from "./types";
 
 /** Filename for the user request file, read by the SDK runner */
 const USER_REQUEST_FILENAME = "claude-user-request.txt";
+
+/**
+ * Fetch the correct run number from Gitea API
+ * Gitea Actions' github.run_id provides an internal tracking ID, not the UI run number
+ */
+async function getGiteaRunNumber(
+  owner: string,
+  repo: string,
+  giteaToken: string,
+): Promise<string> {
+  try {
+    // Query the most recent runs to find the current one
+    // GET /repos/{owner}/{repo}/actions/runs
+    const runsUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/actions/runs`;
+    const response = await fetch(runsUrl, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `token ${giteaToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to fetch runs: ${response.status}`);
+      return "";
+    }
+
+    const data = (await response.json()) as any;
+
+    // Handle different possible response structures:
+    // 1. Array directly: [{ id, number, ... }]
+    // 2. Object with runs: { runs: [{ id, number, ... }] }
+    // 3. Object with workflow_runs: { workflow_runs: [{ id, run_number, ... }] }
+    let runsArray: any[] = [];
+
+    if (Array.isArray(data)) {
+      runsArray = data;
+    } else if (data.runs && Array.isArray(data.runs)) {
+      runsArray = data.runs;
+    } else if (data.workflow_runs && Array.isArray(data.workflow_runs)) {
+      runsArray = data.workflow_runs;
+    }
+
+    if (runsArray.length > 0) {
+      const latestRun = runsArray[0];
+      // Handle both 'number' and 'run_number' property names
+      const runNumber = latestRun.number || latestRun.run_number;
+      if (runNumber !== undefined) {
+        return runNumber.toString();
+      }
+    }
+
+    return "";
+  } catch (error) {
+    console.error("Error fetching Gitea run number:", error);
+    return "";
+  }
+}
 
 // Tag mode defaults - these tools are needed for tag mode to function
 const BASE_ALLOWED_TOOLS = [
@@ -849,6 +906,17 @@ export async function createPrompt(
     await mkdir(`${process.env.RUNNER_TEMP || "/tmp"}/claude-prompts`, {
       recursive: true,
     });
+
+    // Fetch the correct run number from Gitea API for use in prompt generation
+    const giteaToken = process.env.GITEA_TOKEN!;
+    const { owner, repo } = context.repository;
+    const runNumber = await getGiteaRunNumber(owner, repo, giteaToken);
+
+    // Set the correct run number as an environment variable for prompt generation
+    if (runNumber) {
+      process.env.GITEA_RUN_ID = runNumber;
+      console.log(`Using Gitea run number: ${runNumber}`);
+    }
 
     // Generate the prompt directly
     const promptContent = generatePrompt(
