@@ -142,8 +142,19 @@ export async function setupBranch(
       // Handle open PR: Checkout the PR branch
       console.log("This is an open PR, checking out PR branch...");
 
+      // Log the PR head and base structure for debugging
+      console.log(`PR head structure:`, JSON.stringify(prData.head, null, 2));
+      console.log(`PR base structure:`, JSON.stringify(prData.base, null, 2));
+
       // In Gitea, use head.ref for the branch name directly
       const branchName = prData.head.ref;
+      if (!branchName) {
+        throw new Error(
+          `PR #${entityNumber} head.ref is undefined or empty. PR data: ${JSON.stringify(
+            prData,
+          )}`,
+        );
+      }
 
       // Determine optimal fetch depth based on PR commit count, with a minimum of 20
       // Gitea API may not return commits field, so provide a safe default
@@ -168,6 +179,13 @@ export async function setupBranch(
       // For open PRs, we need to get the base branch of the PR
       // In Gitea, use base.ref for the base branch name directly
       const baseBranch = prData.base.ref;
+      if (!baseBranch) {
+        throw new Error(
+          `PR #${entityNumber} base.ref is undefined or empty. PR data: ${JSON.stringify(
+            prData,
+          )}`,
+        );
+      }
       validateBranchName(baseBranch);
 
       return {
