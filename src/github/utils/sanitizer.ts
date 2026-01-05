@@ -77,7 +77,21 @@ export function redactGiteaTokens(content: string): string {
   );
 
   // Generic token patterns that might be used with Gitea
-  content = content.replace(/\b[A-Za-z0-9_-]{20,}\b/g, (match) => {
+  // Use a callback with index to check context around the match
+  content = content.replace(/\b[A-Za-z0-9_-]{20,}\b/g, (match, index, str) => {
+    // Skip if preceded by a forward slash (part of a branch path like claude/issue-4-20250105-1200)
+    if (index > 0 && str[index - 1] === "/") {
+      return match;
+    }
+
+    // Skip if followed by a forward slash (part of a branch path)
+    if (
+      index + match.length < str.length &&
+      str[index + match.length] === "/"
+    ) {
+      return match;
+    }
+
     // Only redact if it looks like a token (contains uppercase, lowercase, numbers, and underscores/dashes)
     const hasUpper = /[A-Z]/.test(match);
     const hasLower = /[a-z]/.test(match);

@@ -5,11 +5,7 @@ import {
   updateCommentBody,
   type CommentUpdateInput,
 } from "../github/operations/comment-logic";
-import {
-  parseGiteaContext,
-  isIssueCommentEvent,
-  isEntityContext,
-} from "../github/context";
+import { parseGiteaContext, isEntityContext } from "../github/context";
 import { GITEA_SERVER_URL, GITEA_API_URL } from "../github/api/config";
 import { updateClaudeComment } from "../github/operations/comments/update-claude-comment";
 
@@ -34,20 +30,38 @@ async function getGiteaRunNumber(
     });
 
     if (!response.ok) {
+      console.error(`Failed to fetch runs: ${response.status}`);
       return "";
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as any;
 
-    // Get the most recent run (first in the list)
-    if (data.workflow_runs && data.workflow_runs.length > 0) {
-      const latestRun = data.workflow_runs[0];
-      // Return the run_number which is what appears in the UI URL
-      return latestRun.run_number.toString();
+    // Handle different possible response structures:
+    // 1. Array directly: [{ id, number, ... }]
+    // 2. Object with runs: { runs: [{ id, number, ... }] }
+    // 3. Object with workflow_runs: { workflow_runs: [{ id, run_number, ... }] }
+    let runsArray: any[] = [];
+
+    if (Array.isArray(data)) {
+      runsArray = data;
+    } else if (data.runs && Array.isArray(data.runs)) {
+      runsArray = data.runs;
+    } else if (data.workflow_runs && Array.isArray(data.workflow_runs)) {
+      runsArray = data.workflow_runs;
+    }
+
+    if (runsArray.length > 0) {
+      const latestRun = runsArray[0];
+      // Handle both 'number' and 'run_number' property names
+      const runNumber = latestRun.number || latestRun.run_number;
+      if (runNumber !== undefined) {
+        return runNumber.toString();
+      }
     }
 
     return "";
   } catch (error) {
+    console.error("Error fetching Gitea run number:", error);
     return "";
   }
 }

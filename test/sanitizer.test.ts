@@ -331,6 +331,51 @@ export GITEA_TOKEN=[REDACTED_GITEA_TOKEN]
     expect(redactGiteaTokens("gitea_token_")).toBe("gitea_token_");
     expect(redactGiteaTokens("gitea_token_short")).toBe("gitea_token_short");
   });
+
+  it("should not redact valid branch names", () => {
+    // Branch names with forward slashes should not be redacted
+    expect(redactGiteaTokens("claude/issue-4-20250105-1200")).toBe(
+      "claude/issue-4-20250105-1200",
+    );
+    expect(redactGiteaTokens("claude/pr-456-20240101-1200")).toBe(
+      "claude/pr-456-20240101-1200",
+    );
+    expect(redactGiteaTokens("feature/new-feature")).toBe(
+      "feature/new-feature",
+    );
+    expect(redactGiteaTokens("bugfix/critical-fix")).toBe(
+      "bugfix/critical-fix",
+    );
+    expect(redactGiteaTokens("release/v1.0.0")).toBe("release/v1.0.0");
+    expect(redactGiteaTokens("develop/feature-branch")).toBe(
+      "develop/feature-branch",
+    );
+
+    // Even long branch names should not be redacted
+    expect(redactGiteaTokens("claude/issue-123456-20250105-1200")).toBe(
+      "claude/issue-123456-20250105-1200",
+    );
+  });
+
+  it("should not redact branch names in URLs", () => {
+    // Branch names in compare URLs should not be redacted
+    const url =
+      "https://gitea.com/owner/repo/compare/master...claude/issue-4-20250105-1200?quick_pull=1";
+    expect(redactGiteaTokens(url)).toBe(url);
+
+    const url2 = "https://gitea.com/owner/repo/src/branch/feature/new-feature";
+    expect(redactGiteaTokens(url2)).toBe(url2);
+  });
+
+  it("should still redact actual tokens even with branch-like patterns", () => {
+    // Tokens without slashes should still be redacted
+    expect(
+      redactGiteaTokens("gitea_token_xz7yzju2SZjGPa0dUNMAx0SH4xDOCS31LXQW"),
+    ).toBe("[REDACTED_GITEA_TOKEN]");
+    expect(
+      redactGiteaTokens("gitea_oauth_16C7e42F292c6912E7710c838347Ae178B4a"),
+    ).toBe("[REDACTED_GITEA_TOKEN]");
+  });
 });
 
 describe("sanitizeContent with token redaction", () => {
