@@ -48,31 +48,99 @@ export async function checkWritePermissions(
     }
 
     // Check permissions using Gitea REST API
-    const response = await fetch(
-      `${GITEA_API_URL}/repos/${repository.owner}/${repository.repo}/collaborators/${actor}/permission`,
-      {
-        headers: {
-          Authorization: `token ${GITEA_TOKEN}`,
-          Accept: "application/json",
-        },
-      },
-    );
+    // First try the collaborators endpoint (direct permissions)
+    let permissionLevel: string | null = null;
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to check permissions: ${response.status} ${response.statusText}`,
+    try {
+      const response = await fetch(
+        `${GITEA_API_URL}/repos/${repository.owner}/${repository.repo}/collaborators/${actor}/permission`,
+        {
+          headers: {
+            Authorization: `token ${GITEA_TOKEN}`,
+            Accept: "application/json",
+          },
+        },
       );
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          permission: string;
+          user: {
+            login: string;
+          };
+        };
+        permissionLevel = data.permission;
+        console.log(
+          `Permission level retrieved (collaborator): ${permissionLevel}`,
+        );
+      } else if (response.status === 403 || response.status === 404) {
+        // User might not be a direct collaborator (could be team-based access)
+        // Try to check repo access by fetching repo details
+        console.log(
+          `User not a direct collaborator (status ${response.status}), checking repo access...`,
+        );
+      } else {
+        throw new Error(
+          `Failed to check permissions: ${response.status} ${response.statusText}`,
+        );
+      }
+    } catch (error) {
+      console.log(`Error checking collaborator permissions: ${error}`);
     }
 
-    const data = (await response.json()) as {
-      permission: string;
-      user: {
-        login: string;
-      };
-    };
+    // If collaborator check failed, try to check if user has repo access
+    // by fetching repo details (requires at least read access)
+    if (permissionLevel === null) {
+      try {
+        const repoResponse = await fetch(
+          `${GITEA_API_URL}/repos/${repository.owner}/${repository.repo}`,
+          {
+            headers: {
+              Authorization: `token ${GITEA_TOKEN}`,
+              Accept: "application/json",
+            },
+          },
+        );
 
-    const permissionLevel = data.permission;
-    console.log(`Permission level retrieved: ${permissionLevel}`);
+        if (repoResponse.ok) {
+          const repoData = (await repoResponse.json()) as {
+            permissions: {
+              admin: boolean;
+              push: boolean;
+              pull: boolean;
+            };
+            owner: {
+              login: string;
+            };
+          };
+
+          console.log(`Repo permissions:`, repoData.permissions);
+
+          // Check if user has push/write access
+          if (repoData.permissions.push || repoData.permissions.admin) {
+            permissionLevel = repoData.permissions.admin
+              ? GITEA_PERMISSION_LEVELS.ADMIN
+              : GITEA_PERMISSION_LEVELS.WRITE;
+            console.log(
+              `Permission level retrieved (repo access): ${permissionLevel}`,
+            );
+          } else if (repoData.permissions.pull) {
+            permissionLevel = GITEA_PERMISSION_LEVELS.READ;
+            console.log(`User has only read access`);
+          } else {
+            permissionLevel = GITEA_PERMISSION_LEVELS.NONE;
+            console.log(`User has no access to this repo`);
+          }
+        } else {
+          throw new Error(
+            `Failed to check repo access: ${repoResponse.status} ${repoResponse.statusText}`,
+          );
+        }
+      } catch (error) {
+        console.error(`Error checking repo access: ${error}`);
+        throw new Error(`Failed to check permissions for ${actor}: ${error}`);
+      }
+    }
 
     if (
       permissionLevel === GITEA_PERMISSION_LEVELS.OWNER ||
