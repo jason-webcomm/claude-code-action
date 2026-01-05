@@ -11,7 +11,6 @@ import {
 import fs from "fs/promises";
 import { downloadCommentImages } from "../src/github/utils/image-downloader";
 import type { CommentWithImages } from "../src/github/utils/image-downloader";
-import type { Octokits } from "../src/github/api/client";
 
 describe("downloadCommentImages", () => {
   let consoleLogSpy: any;
@@ -45,35 +44,17 @@ describe("downloadCommentImages", () => {
     setSystemTime(); // Reset to real time
   });
 
-  const createMockOctokit = (): Octokits => {
-    return {
-      rest: {
-        issues: {
-          getComment: jest.fn(),
-          get: jest.fn(),
-        },
-        pulls: {
-          getReviewComment: jest.fn(),
-          getReview: jest.fn(),
-          get: jest.fn(),
-        },
-      },
-    } as any as Octokits;
-  };
-
   test("should create download directory", async () => {
-    const mockOctokit = createMockOctokit();
     const comments: CommentWithImages[] = [];
 
-    await downloadCommentImages(mockOctokit, "owner", "repo", comments);
+    await downloadCommentImages("owner", "repo", comments);
 
-    expect(fsMkdirSpy).toHaveBeenCalledWith("/tmp/github-images", {
+    expect(fsMkdirSpy).toHaveBeenCalledWith("/tmp/gitea-images", {
       recursive: true,
     });
   });
 
   test("should handle comments without images", async () => {
-    const mockOctokit = createMockOctokit();
     const comments: CommentWithImages[] = [
       {
         type: "issue_comment",
@@ -82,12 +63,7 @@ describe("downloadCommentImages", () => {
       },
     ];
 
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
+    const result = await downloadCommentImages("owner", "repo", comments);
 
     expect(result.size).toBe(0);
     expect(consoleLogSpy).not.toHaveBeenCalledWith(
@@ -96,26 +72,30 @@ describe("downloadCommentImages", () => {
   });
 
   test("should detect and download images from issue comments", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl =
-      "https://github.com/user-attachments/assets/test-image.png";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/test.png?jwt=token";
+    const giteaServerUrl = "https://your-gitea-instance";
+    const imageUrl = `${giteaServerUrl}/attachments/test-image.png`;
 
-    // Mock octokit response
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
+    // Mock fetch for Gitea API (comment body) and image download
+    fetchSpy = spyOn(global, "fetch").mockImplementation((url: string) => {
+      if (url.includes("/repos/owner/repo/issues/comments/123")) {
+        // Gitea API response for comment
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ body: "Comment body" }),
+        } as Response);
+      }
+      if (url.includes(imageUrl)) {
+        // Image download response
+        return Promise.resolve({
+          ok: true,
+          arrayBuffer: async () => new ArrayBuffer(8),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
     });
-
-    // Mock fetch for image download
-    const mockArrayBuffer = new ArrayBuffer(8);
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => mockArrayBuffer,
-    } as Response);
 
     const comments: CommentWithImages[] = [
       {
@@ -125,151 +105,39 @@ describe("downloadCommentImages", () => {
       },
     ];
 
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(mockOctokit.rest.issues.getComment).toHaveBeenCalledWith({
-      owner: "owner",
-      repo: "repo",
-      comment_id: 123,
-      mediaType: { format: "full+json" },
-    });
-
-    expect(fetchSpy).toHaveBeenCalledWith(signedUrl);
-    expect(fsWriteFileSpy).toHaveBeenCalledWith(
-      "/tmp/github-images/image-1704067200000-0.png",
-      Buffer.from(mockArrayBuffer),
-    );
+    const result = await downloadCommentImages("owner", "repo", comments);
 
     expect(result.size).toBe(1);
     expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.png",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 1 image(s) in issue_comment 123",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(`Downloading ${imageUrl}...`);
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "✓ Saved: /tmp/github-images/image-1704067200000-0.png",
-    );
-  });
-
-  test("should handle review comments", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl =
-      "https://github.com/user-attachments/assets/review-image.jpg";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/review.jpg?jwt=token";
-
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.pulls.getReviewComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
-    });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "review_comment",
-        id: "456",
-        body: `Review comment with image: ![review](${imageUrl})`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(mockOctokit.rest.pulls.getReviewComment).toHaveBeenCalledWith({
-      owner: "owner",
-      repo: "repo",
-      comment_id: 456,
-      mediaType: { format: "full+json" },
-    });
-
-    expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.jpg",
-    );
-  });
-
-  test("should handle review bodies", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl =
-      "https://github.com/user-attachments/assets/review-body.png";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/body.png?jwt=token";
-
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.pulls.getReview = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
-    });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "review_body",
-        id: "789",
-        pullNumber: "100",
-        body: `Review body: ![body](${imageUrl})`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(mockOctokit.rest.pulls.getReview).toHaveBeenCalledWith({
-      owner: "owner",
-      repo: "repo",
-      pull_number: 100,
-      review_id: 789,
-      mediaType: { format: "full+json" },
-    });
-
-    expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.png",
+      "/tmp/gitea-images/image-1704067200000-0.png",
     );
   });
 
   test("should handle issue bodies", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl =
-      "https://github.com/user-attachments/assets/issue-body.gif";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/issue.gif?jwt=token";
+    const giteaServerUrl = "https://your-gitea-instance";
+    const imageUrl = `${giteaServerUrl}/attachments/issue-body.gif`;
 
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.get = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
+    // Mock fetch for Gitea API (issue body) and image download
+    fetchSpy = spyOn(global, "fetch").mockImplementation((url: string) => {
+      if (url.includes("/repos/owner/repo/issues/200")) {
+        // Gitea API response for issue
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ body: "Issue body" }),
+        } as Response);
+      }
+      if (url.includes(imageUrl)) {
+        // Image download response
+        return Promise.resolve({
+          ok: true,
+          arrayBuffer: async () => new ArrayBuffer(8),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
     });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
 
     const comments: CommentWithImages[] = [
       {
@@ -279,45 +147,39 @@ describe("downloadCommentImages", () => {
       },
     ];
 
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
+    const result = await downloadCommentImages("owner", "repo", comments);
 
-    expect(mockOctokit.rest.issues.get).toHaveBeenCalledWith({
-      owner: "owner",
-      repo: "repo",
-      issue_number: 200,
-      mediaType: { format: "full+json" },
-    });
-
+    expect(result.size).toBe(1);
     expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.gif",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 1 image(s) in issue_body 200",
+      "/tmp/gitea-images/image-1704067200000-0.gif",
     );
   });
 
   test("should handle PR bodies", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl = "https://github.com/user-attachments/assets/pr-body.webp";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/pr.webp?jwt=token";
+    const giteaServerUrl = "https://your-gitea-instance";
+    const imageUrl = `${giteaServerUrl}/attachments/pr-body.webp`;
 
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.pulls.get = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
+    // Mock fetch for Gitea API (PR body) and image download
+    fetchSpy = spyOn(global, "fetch").mockImplementation((url: string) => {
+      if (url.includes("/repos/owner/repo/pulls/300")) {
+        // Gitea API response for PR
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ body: "PR body" }),
+        } as Response);
+      }
+      if (url.includes(imageUrl)) {
+        // Image download response
+        return Promise.resolve({
+          ok: true,
+          arrayBuffer: async () => new ArrayBuffer(8),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
     });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
 
     const comments: CommentWithImages[] = [
       {
@@ -327,94 +189,39 @@ describe("downloadCommentImages", () => {
       },
     ];
 
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
+    const result = await downloadCommentImages("owner", "repo", comments);
 
-    expect(mockOctokit.rest.pulls.get).toHaveBeenCalledWith({
-      owner: "owner",
-      repo: "repo",
-      pull_number: 300,
-      mediaType: { format: "full+json" },
-    });
-
+    expect(result.size).toBe(1);
     expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.webp",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 1 image(s) in pr_body 300",
-    );
-  });
-
-  test("should handle multiple images in a single comment", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl1 = "https://github.com/user-attachments/assets/image1.png";
-    const imageUrl2 = "https://github.com/user-attachments/assets/image2.jpg";
-    const signedUrl1 =
-      "https://private-user-images.githubusercontent.com/1.png?jwt=token1";
-    const signedUrl2 =
-      "https://private-user-images.githubusercontent.com/2.jpg?jwt=token2";
-
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl1}"><img src="${signedUrl2}">`,
-      },
-    });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "issue_comment",
-        id: "999",
-        body: `Two images: ![img1](${imageUrl1}) and ![img2](${imageUrl2})`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.size).toBe(2);
-    expect(result.get(imageUrl1)).toBe(
-      "/tmp/github-images/image-1704067200000-0.png",
-    );
-    expect(result.get(imageUrl2)).toBe(
-      "/tmp/github-images/image-1704067200000-1.jpg",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 2 image(s) in issue_comment 999",
+      "/tmp/gitea-images/image-1704067200000-0.webp",
     );
   });
 
   test("should skip already downloaded images", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl = "https://github.com/user-attachments/assets/duplicate.png";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/dup.png?jwt=token";
+    const giteaServerUrl = "https://your-gitea-instance";
+    const imageUrl = `${giteaServerUrl}/attachments/duplicate.png`;
 
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
+    let fetchCallCount = 0;
+    fetchSpy = spyOn(global, "fetch").mockImplementation((url: string) => {
+      if (url.includes("/repos/owner/repo/issues/comments/")) {
+        fetchCallCount++;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ body: "Comment body" }),
+        } as Response);
+      }
+      if (url.includes(imageUrl)) {
+        fetchCallCount++;
+        return Promise.resolve({
+          ok: true,
+          arrayBuffer: async () => new ArrayBuffer(8),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
     });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
 
     const comments: CommentWithImages[] = [
       {
@@ -429,70 +236,38 @@ describe("downloadCommentImages", () => {
       },
     ];
 
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
+    const result = await downloadCommentImages("owner", "repo", comments);
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1); // Only downloaded once
+    expect(fetchCallCount).toBe(3); // 2 API calls (one per comment) + 1 image download
     expect(result.size).toBe(1);
     expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.png",
-    );
-  });
-
-  test("should handle missing HTML body", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl = "https://github.com/user-attachments/assets/missing.png";
-
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: null,
-      },
-    });
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "issue_comment",
-        id: "333",
-        body: `Missing HTML: ![missing](${imageUrl})`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(result.size).toBe(0);
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
-      "No HTML body found for issue_comment 333",
+      "/tmp/gitea-images/image-1704067200000-0.png",
     );
   });
 
   test("should handle fetch errors", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl = "https://github.com/user-attachments/assets/error.png";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/error.png?jwt=token";
+    const giteaServerUrl = "https://your-gitea-instance";
+    const imageUrl = `${giteaServerUrl}/attachments/error.png`;
 
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
+    fetchSpy = spyOn(global, "fetch").mockImplementation((url: string) => {
+      if (url.includes("/repos/owner/repo/issues/comments/")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ body: "Comment body" }),
+        } as Response);
+      }
+      if (url.includes(imageUrl)) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
     });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: false,
-      status: 404,
-      statusText: "Not Found",
-    } as Response);
 
     const comments: CommentWithImages[] = [
       {
@@ -502,12 +277,7 @@ describe("downloadCommentImages", () => {
       },
     ];
 
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
+    const result = await downloadCommentImages("owner", "repo", comments);
 
     expect(result.size).toBe(0);
     expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -517,13 +287,18 @@ describe("downloadCommentImages", () => {
   });
 
   test("should handle API errors gracefully", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl = "https://github.com/user-attachments/assets/api-error.png";
+    const giteaServerUrl = "https://your-gitea-instance";
+    const imageUrl = `${giteaServerUrl}/attachments/api-error.png`;
 
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest
-      .fn()
-      .mockRejectedValue(new Error("API rate limit exceeded"));
+    fetchSpy = spyOn(global, "fetch").mockImplementation((url: string) => {
+      if (url.includes("/repos/owner/repo/issues/comments/")) {
+        return Promise.reject(new Error("API rate limit exceeded"));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      } as Response);
+    });
 
     const comments: CommentWithImages[] = [
       {
@@ -533,12 +308,7 @@ describe("downloadCommentImages", () => {
       },
     ];
 
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
+    const result = await downloadCommentImages("owner", "repo", comments);
 
     expect(result.size).toBe(0);
     expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -548,51 +318,39 @@ describe("downloadCommentImages", () => {
   });
 
   test("should extract correct file extensions", async () => {
-    const mockOctokit = createMockOctokit();
     const extensions = [
+      { url: "https://your-gitea-instance/attachments/test.png", ext: ".png" },
+      { url: "https://your-gitea-instance/attachments/test.jpg", ext: ".jpg" },
       {
-        url: "https://github.com/user-attachments/assets/test.png",
-        ext: ".png",
-      },
-      {
-        url: "https://github.com/user-attachments/assets/test.jpg",
-        ext: ".jpg",
-      },
-      {
-        url: "https://github.com/user-attachments/assets/test.jpeg",
+        url: "https://your-gitea-instance/attachments/test.jpeg",
         ext: ".jpeg",
       },
+      { url: "https://your-gitea-instance/attachments/test.gif", ext: ".gif" },
       {
-        url: "https://github.com/user-attachments/assets/test.gif",
-        ext: ".gif",
-      },
-      {
-        url: "https://github.com/user-attachments/assets/test.webp",
+        url: "https://your-gitea-instance/attachments/test.webp",
         ext: ".webp",
       },
+      { url: "https://your-gitea-instance/attachments/test.svg", ext: ".svg" },
+      // default
       {
-        url: "https://github.com/user-attachments/assets/test.svg",
-        ext: ".svg",
-      },
-      {
-        // default
-        url: "https://github.com/user-attachments/assets/no-extension",
+        url: "https://your-gitea-instance/attachments/no-extension",
         ext: ".png",
       },
     ];
 
     let callIndex = 0;
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="https://private-user-images.githubusercontent.com/test?jwt=token">`,
-      },
+    fetchSpy = spyOn(global, "fetch").mockImplementation((url: string) => {
+      if (url.includes("/repos/owner/repo/")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ body: "Body" }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(8),
+      } as Response);
     });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
 
     for (const { url, ext } of extensions) {
       const comments: CommentWithImages[] = [
@@ -604,14 +362,9 @@ describe("downloadCommentImages", () => {
       ];
 
       setSystemTime(new Date(1704067200000 + callIndex));
-      const result = await downloadCommentImages(
-        mockOctokit,
-        "owner",
-        "repo",
-        comments,
-      );
+      const result = await downloadCommentImages("owner", "repo", comments);
       expect(result.get(url)).toBe(
-        `/tmp/github-images/image-${1704067200000 + callIndex}-0${ext}`,
+        `/tmp/gitea-images/image-${1704067200000 + callIndex}-0${ext}`,
       );
 
       // Reset for next iteration
@@ -620,297 +373,40 @@ describe("downloadCommentImages", () => {
     }
   });
 
-  test("should handle mismatched signed URL count", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl1 = "https://github.com/user-attachments/assets/img1.png";
-    const imageUrl2 = "https://github.com/user-attachments/assets/img2.png";
-    const signedUrl1 =
-      "https://private-user-images.githubusercontent.com/1.png?jwt=token";
+  test("should handle multiple images in a single comment", async () => {
+    const giteaServerUrl = "https://your-gitea-instance";
+    const imageUrl1 = `${giteaServerUrl}/attachments/image1.png`;
+    const imageUrl2 = `${giteaServerUrl}/attachments/image2.jpg`;
 
-    // Only one signed URL for two images
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl1}">`,
-      },
+    fetchSpy = spyOn(global, "fetch").mockImplementation((url: string) => {
+      if (url.includes("/repos/owner/repo/issues/comments/")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ body: "Comment body" }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(8),
+      } as Response);
     });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "issue_comment",
-        id: "666",
-        body: `Two images: ![img1](${imageUrl1}) ![img2](${imageUrl2})`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(result.size).toBe(1);
-    expect(result.get(imageUrl1)).toBe(
-      "/tmp/github-images/image-1704067200000-0.png",
-    );
-    expect(result.get(imageUrl2)).toBeUndefined();
-  });
-
-  test("should detect and download images from HTML img tags", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl =
-      "https://github.com/user-attachments/assets/html-image.png";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/html.png?jwt=token";
-
-    // Mock octokit response
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
-    });
-
-    // Mock fetch for image download
-    const mockArrayBuffer = new ArrayBuffer(8);
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => mockArrayBuffer,
-    } as Response);
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "issue_comment",
-        id: "777",
-        body: `Here's an HTML image: <img src="${imageUrl}" alt="test">`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(mockOctokit.rest.issues.getComment).toHaveBeenCalledWith({
-      owner: "owner",
-      repo: "repo",
-      comment_id: 777,
-      mediaType: { format: "full+json" },
-    });
-
-    expect(fetchSpy).toHaveBeenCalledWith(signedUrl);
-    expect(fsWriteFileSpy).toHaveBeenCalledWith(
-      "/tmp/github-images/image-1704067200000-0.png",
-      Buffer.from(mockArrayBuffer),
-    );
-
-    expect(result.size).toBe(1);
-    expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.png",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 1 image(s) in issue_comment 777",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(`Downloading ${imageUrl}...`);
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "✓ Saved: /tmp/github-images/image-1704067200000-0.png",
-    );
-  });
-
-  test("should handle HTML img tags with different quote styles", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl1 =
-      "https://github.com/user-attachments/assets/single-quote.jpg";
-    const imageUrl2 =
-      "https://github.com/user-attachments/assets/double-quote.png";
-    const signedUrl1 =
-      "https://private-user-images.githubusercontent.com/single.jpg?jwt=token1";
-    const signedUrl2 =
-      "https://private-user-images.githubusercontent.com/double.png?jwt=token2";
-
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl1}"><img src="${signedUrl2}">`,
-      },
-    });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "issue_comment",
-        id: "888",
-        body: `Single quote: <img src='${imageUrl1}' alt="test"> and double quote: <img src="${imageUrl2}" alt="test">`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.size).toBe(2);
-    expect(result.get(imageUrl1)).toBe(
-      "/tmp/github-images/image-1704067200000-0.jpg",
-    );
-    expect(result.get(imageUrl2)).toBe(
-      "/tmp/github-images/image-1704067200000-1.png",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 2 image(s) in issue_comment 888",
-    );
-  });
-
-  test("should handle mixed Markdown and HTML images", async () => {
-    const mockOctokit = createMockOctokit();
-    const markdownUrl =
-      "https://github.com/user-attachments/assets/markdown.png";
-    const htmlUrl = "https://github.com/user-attachments/assets/html.jpg";
-    const signedUrl1 =
-      "https://private-user-images.githubusercontent.com/md.png?jwt=token1";
-    const signedUrl2 =
-      "https://private-user-images.githubusercontent.com/html.jpg?jwt=token2";
-
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl1}"><img src="${signedUrl2}">`,
-      },
-    });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
 
     const comments: CommentWithImages[] = [
       {
         type: "issue_comment",
         id: "999",
-        body: `Markdown: ![test](${markdownUrl}) and HTML: <img src="${htmlUrl}" alt="test">`,
+        body: `Two images: ![img1](${imageUrl1}) and ![img2](${imageUrl2})`,
       },
     ];
 
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
+    const result = await downloadCommentImages("owner", "repo", comments);
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(result.size).toBe(2);
-    expect(result.get(markdownUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.png",
+    expect(result.get(imageUrl1)).toBe(
+      "/tmp/gitea-images/image-1704067200000-0.png",
     );
-    expect(result.get(htmlUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-1.jpg",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 2 image(s) in issue_comment 999",
-    );
-  });
-
-  test("should deduplicate identical URLs from Markdown and HTML", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl = "https://github.com/user-attachments/assets/duplicate.png";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/dup.png?jwt=token";
-
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
-    });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "issue_comment",
-        id: "1000",
-        body: `Same image twice: ![test](${imageUrl}) and <img src="${imageUrl}" alt="test">`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1); // Only downloaded once
-    expect(result.size).toBe(1);
-    expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.png",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 1 image(s) in issue_comment 1000",
-    );
-  });
-
-  test("should handle HTML img tags with additional attributes", async () => {
-    const mockOctokit = createMockOctokit();
-    const imageUrl =
-      "https://github.com/user-attachments/assets/complex-tag.webp";
-    const signedUrl =
-      "https://private-user-images.githubusercontent.com/complex.webp?jwt=token";
-
-    // @ts-expect-error Mock implementation doesn't match full type signature
-    mockOctokit.rest.issues.getComment = jest.fn().mockResolvedValue({
-      data: {
-        body_html: `<img src="${signedUrl}">`,
-      },
-    });
-
-    fetchSpy = spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(8),
-    } as Response);
-
-    const comments: CommentWithImages[] = [
-      {
-        type: "issue_comment",
-        id: "1001",
-        body: `Complex tag: <img class="image" src="${imageUrl}" alt="test image" width="100" height="200">`,
-      },
-    ];
-
-    const result = await downloadCommentImages(
-      mockOctokit,
-      "owner",
-      "repo",
-      comments,
-    );
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(result.size).toBe(1);
-    expect(result.get(imageUrl)).toBe(
-      "/tmp/github-images/image-1704067200000-0.webp",
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Found 1 image(s) in issue_comment 1001",
+    expect(result.get(imageUrl2)).toBe(
+      "/tmp/gitea-images/image-1704067200000-1.jpg",
     );
   });
 });

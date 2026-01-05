@@ -7,10 +7,10 @@
  */
 
 import { execFileSync } from "child_process";
-import * as core from "@actions/core";
-import type { ParsedGitHubContext } from "../context";
-import type { GitHubPullRequest } from "../types";
-import type { Octokits } from "../api/client";
+import * as core from "../../gitea-actions/core";
+import type { GiteaContext } from "../context";
+import type { GiteaPullRequest } from "../types";
+import { GITEA_API_URL, GITEA_SERVER_URL } from "../api/config";
 import type { FetchDataResult } from "../data/fetcher";
 
 /**
@@ -26,7 +26,7 @@ import type { FetchDataResult } from "../data/fetcher";
  * - Do not contain '//' (consecutive slashes)
  * - Do not end with '.lock'
  * - Do not contain '@{'
- * - Do not contain control characters or special git characters (~^:?*[\])
+ * - Do not contain control characters or special git characters (~^:?*[\\])
  */
 export function validateBranchName(branchName: string): void {
   // Check for empty or whitespace-only names
@@ -41,9 +41,9 @@ export function validateBranchName(branchName: string): void {
     );
   }
 
-  // Check for control characters and special git characters (~^:?*[\])
+  // Check for control characters and special git characters (~^:?*[\\])
   // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1F\x7F ~^:?*[\]\\]/.test(branchName)) {
+  if (/[\x00-\x1F\x7F ~^:?*[\\]\\]/.test(branchName)) {
     throw new Error(
       `Invalid branch name: "${branchName}". Branch names cannot contain control characters, spaces, or special git characters (~^:?*[\\]).`,
     );
@@ -119,9 +119,9 @@ export type BranchInfo = {
 };
 
 export async function setupBranch(
-  octokits: Octokits,
+  giteaToken: string,
   githubData: FetchDataResult,
-  context: ParsedGitHubContext,
+  context: GiteaContext,
 ): Promise<BranchInfo> {
   const { owner, repo } = context.repository;
   const entityNumber = context.entityNumber;
@@ -129,11 +129,11 @@ export async function setupBranch(
   const isPR = context.isPR;
 
   if (isPR) {
-    const prData = githubData.contextData as GitHubPullRequest;
+    const prData = githubData.contextData as GiteaPullRequest;
     const prState = prData.state;
 
     // Check if PR is closed or merged
-    if (prState === "CLOSED" || prState === "MERGED") {
+    if (prState === "closed" || prState === "merged") {
       console.log(
         `PR #${entityNumber} is ${prState}, creating new branch from source...`,
       );
@@ -142,10 +142,10 @@ export async function setupBranch(
       // Handle open PR: Checkout the PR branch
       console.log("This is an open PR, checking out PR branch...");
 
-      const branchName = prData.headRefName;
+      const branchName = prData.head.label.split(":")[1]; // Extract branch name from "owner:branch"
 
       // Determine optimal fetch depth based on PR commit count, with a minimum of 20
-      const commitCount = prData.commits.totalCount;
+      const commitCount = prData.commits;
       const fetchDepth = Math.max(commitCount, 20);
 
       console.log(
@@ -163,7 +163,7 @@ export async function setupBranch(
       console.log(`Successfully checked out PR branch for PR #${entityNumber}`);
 
       // For open PRs, we need to get the base branch of the PR
-      const baseBranch = prData.baseRefName;
+      const baseBranch = prData.base.label.split(":")[1]; // Extract branch name from "owner:branch"
       validateBranchName(baseBranch);
 
       return {
@@ -181,11 +181,22 @@ export async function setupBranch(
     sourceBranch = baseBranch;
   } else {
     // No base branch provided, fetch the default branch to use as source
-    const repoResponse = await octokits.rest.repos.get({
-      owner,
-      repo,
+    const repoUrl = `${GITEA_API_URL}/repos/${owner}/${repo}`;
+    const repoResponse = await fetch(repoUrl, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `token ${giteaToken}`,
+      },
     });
-    sourceBranch = repoResponse.data.default_branch;
+
+    if (!repoResponse.ok) {
+      throw new Error(
+        `Failed to fetch repository: ${repoResponse.status} - ${await repoResponse.text()}`,
+      );
+    }
+
+    const repoData = (await repoResponse.json()) as { default_branch: string };
+    sourceBranch = repoData.default_branch;
   }
 
   // Generate branch name for either an issue or closed/merged PR
@@ -203,15 +214,59 @@ export async function setupBranch(
   const branchName = `${branchPrefix}${entityType}-${entityNumber}-${timestamp}`;
   const newBranch = branchName.toLowerCase().substring(0, 50);
 
+  // Clone repository if not already a git repository
+  console.log(`Checking if current directory is a git repository...`);
+  try {
+    execFileSync("git", ["rev-parse", "--git-dir"], { stdio: "pipe" });
+    console.log(`Already in a git repository`);
+  } catch (err) {
+    console.log(`Not a git repository, cloning...`);
+    // Use Gitea token for authentication (username:token format)
+    // Note: Use GITEA_SERVER_URL (not GITEA_API_URL) for git clone operations
+    const cloneUrl = `${GITEA_SERVER_URL}/${owner}/${repo}.git`.replace(
+      "https://",
+      `https://${owner}:${giteaToken}@`,
+    );
+    console.log(`Cloning from: ${cloneUrl.replace(/:[^@]+@/, ":***@")}`);
+    execFileSync("git", ["clone", cloneUrl, "."], { stdio: "inherit" });
+    console.log(`Successfully cloned repository`);
+  }
+
   try {
     // Get the SHA of the source branch to verify it exists
-    const sourceBranchRef = await octokits.rest.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${sourceBranch}`,
+    const sourceBranchRefUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/git/refs/heads/${sourceBranch}`;
+    const sourceBranchRefResponse = await fetch(sourceBranchRefUrl, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `token ${giteaToken}`,
+      },
     });
 
-    const currentSHA = sourceBranchRef.data.object.sha;
+    if (!sourceBranchRefResponse.ok) {
+      throw new Error(
+        `Failed to fetch source branch ref: ${sourceBranchRefResponse.status} - ${await sourceBranchRefResponse.text()}`,
+      );
+    }
+
+    console.log(`Fetching source branch ref from: ${sourceBranchRefUrl}`);
+    const sourceBranchRefData = (await sourceBranchRefResponse.json()) as any;
+    console.log(
+      `Source branch ref response:`,
+      JSON.stringify(sourceBranchRefData, null, 2),
+    );
+
+    // Gitea API returns an array of refs, take the first one
+    const ref = Array.isArray(sourceBranchRefData)
+      ? sourceBranchRefData[0]
+      : sourceBranchRefData;
+
+    if (!ref.object) {
+      throw new Error(
+        `Source branch ref data missing 'object' field. Response: ${JSON.stringify(sourceBranchRefData)}`,
+      );
+    }
+
+    const currentSHA = ref.object.sha;
     console.log(`Source branch SHA: ${currentSHA}`);
 
     // For commit signing, defer branch creation to the file ops server
@@ -226,7 +281,7 @@ export async function setupBranch(
       execGit(["fetch", "origin", sourceBranch, "--depth=1"]);
       execGit(["checkout", sourceBranch, "--"]);
 
-      // Set outputs for GitHub Actions
+      // Set outputs for Gitea Actions
       core.setOutput("CLAUDE_BRANCH", newBranch);
       core.setOutput("BASE_BRANCH", sourceBranch);
       return {
@@ -255,7 +310,7 @@ export async function setupBranch(
       `Successfully created and checked out local branch: ${newBranch}`,
     );
 
-    // Set outputs for GitHub Actions
+    // Set outputs for Gitea Actions
     core.setOutput("CLAUDE_BRANCH", newBranch);
     core.setOutput("BASE_BRANCH", sourceBranch);
     return {

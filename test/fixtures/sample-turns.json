@@ -9,9 +9,9 @@
       "Read",
       "Edit",
       "Write",
-      "mcp__github__get_file_contents",
-      "mcp__github__create_or_update_file",
-      "mcp__github__add_pull_request_review_comment"
+      "mcp__gitea__get_file_contents",
+      "mcp__gitea__create_or_update_file",
+      "mcp__gitea__add_pull_request_review_comment"
     ],
     "mcp_servers": [
       {
@@ -127,7 +127,7 @@
         {
           "type": "tool_use",
           "id": "tool_call_3",
-          "name": "mcp__github__add_pull_request_review_comment",
+          "name": "mcp__gitea__add_pull_request_review_comment",
           "input": {
             "owner": "example-org",
             "repo": "example-repo",

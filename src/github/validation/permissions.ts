@@ -1,31 +1,29 @@
-import * as core from "@actions/core";
-import type { ParsedGitHubContext } from "../context";
-import type { Octokit } from "@octokit/rest";
+import { GITEA_API_URL, GITEA_TOKEN } from "../api/config";
+import type { GiteaContext } from "../context";
+import { GITEA_PERMISSION_LEVELS } from "../constants";
 
 /**
  * Check if the actor has write permissions to the repository
- * @param octokit - The Octokit REST client
- * @param context - The GitHub context
+ * @param context - The Gitea context
  * @param allowedNonWriteUsers - Comma-separated list of users allowed without write permissions, or '*' for all
- * @param githubTokenProvided - Whether github_token was provided as input (not from app)
+ * @param giteaTokenProvided - Whether gitea_token was provided as input (not from app)
  * @returns true if the actor has write permissions, false otherwise
  */
 export async function checkWritePermissions(
-  octokit: Octokit,
-  context: ParsedGitHubContext,
+  context: GiteaContext,
   allowedNonWriteUsers?: string,
-  githubTokenProvided?: boolean,
+  giteaTokenProvided?: boolean,
 ): Promise<boolean> {
   const { repository, actor } = context;
 
   try {
-    core.info(`Checking permissions for actor: ${actor}`);
+    console.log(`Checking permissions for actor: ${actor}`);
 
     // Check if we should bypass permission checks for this user
-    if (allowedNonWriteUsers && githubTokenProvided) {
+    if (allowedNonWriteUsers && giteaTokenProvided) {
       const allowedUsers = allowedNonWriteUsers.trim();
       if (allowedUsers === "*") {
-        core.warning(
+        console.warn(
           `⚠️ SECURITY WARNING: Bypassing write permission check for ${actor} due to allowed_non_write_users='*'. This should only be used for workflows with very limited permissions.`,
         );
         return true;
@@ -35,7 +33,7 @@ export async function checkWritePermissions(
           .map((u) => u.trim())
           .filter((u) => u.length > 0);
         if (allowedUserList.includes(actor)) {
-          core.warning(
+          console.warn(
             `⚠️ SECURITY WARNING: Bypassing write permission check for ${actor} due to allowed_non_write_users configuration. This should only be used for workflows with very limited permissions.`,
           );
           return true;
@@ -43,31 +41,52 @@ export async function checkWritePermissions(
       }
     }
 
-    // Check if the actor is a GitHub App (bot user)
-    if (actor.endsWith("[bot]")) {
-      core.info(`Actor is a GitHub App: ${actor}`);
+    // Check if the actor is a bot (Gitea bots typically have specific patterns)
+    if (actor.endsWith("[bot]") || actor.startsWith("bot-")) {
+      console.log(`Actor is a bot: ${actor}`);
       return true;
     }
 
-    // Check permissions directly using the permission endpoint
-    const response = await octokit.repos.getCollaboratorPermissionLevel({
-      owner: repository.owner,
-      repo: repository.repo,
-      username: actor,
-    });
+    // Check permissions using Gitea REST API
+    const response = await fetch(
+      `${GITEA_API_URL}/repos/${repository.owner}/${repository.repo}/collaborators/${actor}/permission`,
+      {
+        headers: {
+          Authorization: `token ${GITEA_TOKEN}`,
+          Accept: "application/json",
+        },
+      },
+    );
 
-    const permissionLevel = response.data.permission;
-    core.info(`Permission level retrieved: ${permissionLevel}`);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to check permissions: ${response.status} ${response.statusText}`,
+      );
+    }
 
-    if (permissionLevel === "admin" || permissionLevel === "write") {
-      core.info(`Actor has write access: ${permissionLevel}`);
+    const data = (await response.json()) as {
+      permission: string;
+      user: {
+        login: string;
+      };
+    };
+
+    const permissionLevel = data.permission;
+    console.log(`Permission level retrieved: ${permissionLevel}`);
+
+    if (
+      permissionLevel === GITEA_PERMISSION_LEVELS.OWNER ||
+      permissionLevel === GITEA_PERMISSION_LEVELS.ADMIN ||
+      permissionLevel === GITEA_PERMISSION_LEVELS.WRITE
+    ) {
+      console.log(`Actor has write access: ${permissionLevel}`);
       return true;
     } else {
-      core.warning(`Actor has insufficient permissions: ${permissionLevel}`);
+      console.warn(`Actor has insufficient permissions: ${permissionLevel}`);
       return false;
     }
   } catch (error) {
-    core.error(`Failed to check permissions: ${error}`);
+    console.error(`Failed to check permissions: ${error}`);
     throw new Error(`Failed to check permissions for ${actor}: ${error}`);
   }
 }

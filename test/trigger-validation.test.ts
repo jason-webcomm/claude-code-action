@@ -9,17 +9,8 @@ import {
   mockIssueLabeledContext,
   mockIssueCommentContext,
   mockIssueOpenedContext,
-  mockPullRequestReviewContext,
-  mockPullRequestReviewCommentContext,
 } from "./mockContext";
-import type {
-  IssueCommentEvent,
-  IssuesAssignedEvent,
-  IssuesEvent,
-  PullRequestEvent,
-  PullRequestReviewEvent,
-} from "@octokit/webhooks-types";
-import type { ParsedGitHubContext } from "../src/github/context";
+import type { GiteaContext } from "../src/github/context";
 
 describe("checkContainsTrigger", () => {
   describe("prompt trigger", () => {
@@ -54,7 +45,7 @@ describe("checkContainsTrigger", () => {
             created_at: "2023-01-01T00:00:00Z",
             user: { login: "testuser" },
           },
-        } as IssuesEvent,
+        } as any,
         inputs: {
           prompt: "",
           triggerPhrase: "/claude",
@@ -93,20 +84,18 @@ describe("checkContainsTrigger", () => {
         payload: {
           ...mockIssueAssignedContext.payload,
           assignee: {
-            ...(mockIssueAssignedContext.payload as IssuesAssignedEvent)
-              .assignee,
+            ...(mockIssueAssignedContext.payload as any).assignee,
             login: "otherUser",
           },
           issue: {
-            ...(mockIssueAssignedContext.payload as IssuesAssignedEvent).issue,
+            ...(mockIssueAssignedContext.payload as any).issue,
             assignee: {
-              ...(mockIssueAssignedContext.payload as IssuesAssignedEvent).issue
-                .assignee,
+              ...(mockIssueAssignedContext.payload as any).issue.assignee,
               login: "otherUser",
             },
           },
         },
-      } as ParsedGitHubContext;
+      } as GiteaContext;
 
       expect(checkContainsTrigger(context)).toBe(false);
     });
@@ -128,7 +117,7 @@ describe("checkContainsTrigger", () => {
             name: "bug",
           },
         },
-      } as ParsedGitHubContext;
+      } as GiteaContext;
       expect(checkContainsTrigger(context)).toBe(false);
     });
 
@@ -140,7 +129,7 @@ describe("checkContainsTrigger", () => {
           ...mockIssueLabeledContext.payload,
           action: "opened",
         },
-      } as ParsedGitHubContext;
+      } as GiteaContext;
       expect(checkContainsTrigger(context)).toBe(false);
     });
   });
@@ -157,12 +146,12 @@ describe("checkContainsTrigger", () => {
         payload: {
           ...mockIssueOpenedContext.payload,
           issue: {
-            ...(mockIssueOpenedContext.payload as IssuesEvent).issue,
+            ...(mockIssueOpenedContext.payload as any).issue,
             title: "/claude Fix the login bug",
             body: "The login page is broken",
           },
         },
-      } as ParsedGitHubContext;
+      } as GiteaContext;
       expect(checkContainsTrigger(context)).toBe(true);
     });
 
@@ -194,11 +183,11 @@ describe("checkContainsTrigger", () => {
           payload: {
             ...baseContext.payload,
             issue: {
-              ...(baseContext.payload as IssuesEvent).issue,
+              ...(baseContext.payload as any).issue,
               body: issueBody,
             },
           },
-        } as ParsedGitHubContext;
+        } as GiteaContext;
         expect(checkContainsTrigger(context)).toBe(expected);
       });
     });
@@ -209,11 +198,11 @@ describe("checkContainsTrigger", () => {
         payload: {
           ...mockIssueOpenedContext.payload,
           issue: {
-            ...(mockIssueOpenedContext.payload as IssuesEvent).issue,
+            ...(mockIssueOpenedContext.payload as any).issue,
             body: "claudette helped me with this",
           },
         },
-      } as ParsedGitHubContext;
+      } as GiteaContext;
       expect(checkContainsTrigger(context)).toBe(false);
     });
 
@@ -240,12 +229,12 @@ describe("checkContainsTrigger", () => {
           payload: {
             ...baseContext.payload,
             issue: {
-              ...(baseContext.payload as IssuesEvent).issue,
+              ...(baseContext.payload as any).issue,
               title: issueTitle,
               body: "No trigger in body",
             },
           },
-        } as ParsedGitHubContext;
+        } as GiteaContext;
         expect(checkContainsTrigger(context)).toBe(expected);
       });
     });
@@ -266,7 +255,7 @@ describe("checkContainsTrigger", () => {
             created_at: "2023-01-01T00:00:00Z",
             user: { login: "testuser" },
           },
-        } as PullRequestEvent,
+        } as any,
         inputs: {
           prompt: "",
           triggerPhrase: "@claude",
@@ -295,7 +284,7 @@ describe("checkContainsTrigger", () => {
             created_at: "2023-01-01T00:00:00Z",
             user: { login: "testuser" },
           },
-        } as PullRequestEvent,
+        } as any,
         inputs: {
           prompt: "",
           triggerPhrase: "@claude",
@@ -324,7 +313,7 @@ describe("checkContainsTrigger", () => {
             created_at: "2023-01-01T00:00:00Z",
             user: { login: "testuser" },
           },
-        } as PullRequestEvent,
+        } as any,
         inputs: {
           prompt: "",
           triggerPhrase: "@claude",
@@ -346,76 +335,8 @@ describe("checkContainsTrigger", () => {
       expect(checkContainsTrigger(context)).toBe(true);
     });
 
-    it("should return true for pull_request_review_comment with trigger phrase", () => {
-      const context = mockPullRequestReviewCommentContext;
-      expect(checkContainsTrigger(context)).toBe(true);
-    });
-
-    it("should return true for pull_request_review with submitted action and trigger phrase", () => {
-      const context = mockPullRequestReviewContext;
-      expect(checkContainsTrigger(context)).toBe(true);
-    });
-
-    it("should return true for pull_request_review with edited action and trigger phrase", () => {
-      const context = {
-        ...mockPullRequestReviewContext,
-        eventAction: "edited",
-        payload: {
-          ...mockPullRequestReviewContext.payload,
-          action: "edited",
-        },
-      } as ParsedGitHubContext;
-      expect(checkContainsTrigger(context)).toBe(true);
-    });
-
-    it("should return false for pull_request_review with different action", () => {
-      const context = {
-        ...mockPullRequestReviewContext,
-        eventAction: "dismissed",
-        payload: {
-          ...mockPullRequestReviewContext.payload,
-          action: "dismissed",
-          review: {
-            ...(mockPullRequestReviewContext.payload as PullRequestReviewEvent)
-              .review,
-            body: "/claude please review this PR",
-          },
-        },
-      } as ParsedGitHubContext;
-      expect(checkContainsTrigger(context)).toBe(false);
-    });
-
-    it("should handle pull_request_review with punctuation", () => {
-      const baseContext = {
-        ...mockPullRequestReviewContext,
-        inputs: {
-          ...mockPullRequestReviewContext.inputs,
-          triggerPhrase: "@claude",
-        },
-      };
-
-      const testCases = [
-        { commentBody: "@claude, please review", expected: true },
-        { commentBody: "@claude. fix this", expected: true },
-        { commentBody: "@claude!", expected: true },
-        { commentBody: "claude@example.com", expected: false },
-        { commentBody: "claudette", expected: false },
-      ];
-
-      testCases.forEach(({ commentBody, expected }) => {
-        const context = {
-          ...baseContext,
-          payload: {
-            ...baseContext.payload,
-            review: {
-              ...(baseContext.payload as PullRequestReviewEvent).review,
-              body: commentBody,
-            },
-          },
-        } as ParsedGitHubContext;
-        expect(checkContainsTrigger(context)).toBe(expected);
-      });
-    });
+    // Gitea does not have pull_request_review or pull_request_review_comment events
+    // These GitHub-specific event types are not supported
 
     it("should handle comment trigger with punctuation", () => {
       const baseContext = {
@@ -440,11 +361,11 @@ describe("checkContainsTrigger", () => {
           payload: {
             ...baseContext.payload,
             comment: {
-              ...(baseContext.payload as IssueCommentEvent).comment,
+              ...(baseContext.payload as any).comment,
               body: commentBody,
             },
           },
-        } as ParsedGitHubContext;
+        } as GiteaContext;
         expect(checkContainsTrigger(context)).toBe(expected);
       });
     });

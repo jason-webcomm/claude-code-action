@@ -9,7 +9,7 @@ describe("updateCommentBody", () => {
     currentBody: "Initial comment body",
     actionFailed: false,
     executionDetails: null,
-    jobUrl: "https://github.com/owner/repo/actions/runs/123",
+    jobUrl: "https://your-gitea-instance/owner/repo/actions/runs/123",
     branchName: undefined,
     triggerUsername: undefined,
   };
@@ -100,28 +100,26 @@ describe("updateCommentBody", () => {
   });
 
   describe("branch link", () => {
-    it("adds branch name with link to header when provided", () => {
+    it("adds branch name to header when provided", () => {
       const input = {
         ...baseInput,
         branchName: "claude/issue-123-20240101-1200",
       };
 
       const result = updateCommentBody(input);
-      expect(result).toContain(
-        "• [`claude/issue-123-20240101-1200`](https://github.com/owner/repo/tree/claude/issue-123-20240101-1200)",
-      );
+      expect(result).toContain("• `claude/issue-123-20240101-1200`");
     });
 
     it("extracts branch name from branchLink if branchName not provided", () => {
       const input = {
         ...baseInput,
         branchLink:
-          "\n[View branch](https://github.com/owner/repo/tree/branch-name)",
+          "\n[View branch](https://your-gitea-instance/owner/repo/src/branch/branch-name)",
       };
 
       const result = updateCommentBody(input);
       expect(result).toContain(
-        "• [`branch-name`](https://github.com/owner/repo/tree/branch-name)",
+        "• [`branch-name`](https://your-gitea-instance/owner/repo/src/branch/branch-name)",
       );
     });
 
@@ -129,14 +127,12 @@ describe("updateCommentBody", () => {
       const input = {
         ...baseInput,
         currentBody:
-          "Some comment with [View branch](https://github.com/owner/repo/tree/branch-name)",
+          "Some comment with [View branch](https://your-gitea-instance/owner/repo/src/branch/branch-name)",
         branchName: "new-branch-name",
       };
 
       const result = updateCommentBody(input);
-      expect(result).toContain(
-        "• [`new-branch-name`](https://github.com/owner/repo/tree/new-branch-name)",
-      );
+      expect(result).toContain("• `new-branch-name`");
       expect(result).not.toContain("View branch");
     });
   });
@@ -145,12 +141,13 @@ describe("updateCommentBody", () => {
     it("adds PR link to header when provided", () => {
       const input = {
         ...baseInput,
-        prLink: "\n[Create a PR](https://github.com/owner/repo/pr-url)",
+        prLink:
+          "\n[Create a PR](https://your-gitea-instance/owner/repo/pr-url)",
       };
 
       const result = updateCommentBody(input);
       expect(result).toContain(
-        "• [Create PR ➔](https://github.com/owner/repo/pr-url)",
+        "• [Create PR ➔](https://your-gitea-instance/owner/repo/pr-url)",
       );
     });
 
@@ -158,12 +155,12 @@ describe("updateCommentBody", () => {
       const input = {
         ...baseInput,
         currentBody:
-          "Some comment with [Create a PR](https://github.com/owner/repo/pr-url)",
+          "Some comment with [Create a PR](https://your-gitea-instance/owner/repo/pr-url)",
       };
 
       const result = updateCommentBody(input);
       expect(result).toContain(
-        "• [Create PR ➔](https://github.com/owner/repo/pr-url)",
+        "• [Create PR ➔](https://your-gitea-instance/owner/repo/pr-url)",
       );
       // Original Create a PR link is removed from body
       expect(result).not.toContain("[Create a PR]");
@@ -173,21 +170,21 @@ describe("updateCommentBody", () => {
       const input = {
         ...baseInput,
         currentBody:
-          "Some comment with [Create a PR](https://github.com/owner/repo/pr-url-from-body)",
+          "Some comment with [Create a PR](https://your-gitea-instance/owner/repo/pr-url-from-body)",
         prLink:
-          "\n[Create a PR](https://github.com/owner/repo/pr-url-provided)",
+          "\n[Create a PR](https://your-gitea-instance/owner/repo/pr-url-provided)",
       };
 
       const result = updateCommentBody(input);
       // Prefers the link found in content over the provided one
       expect(result).toContain(
-        "• [Create PR ➔](https://github.com/owner/repo/pr-url-from-body)",
+        "• [Create PR ➔](https://your-gitea-instance/owner/repo/pr-url-from-body)",
       );
     });
 
     it("handles complex PR URLs with encoded characters", () => {
       const complexUrl =
-        "https://github.com/owner/repo/compare/main...feature-branch?quick_pull=1&title=fix%3A%20important%20bug%20fix&body=Fixes%20%23123%0A%0A%23%23%20Description%0AThis%20PR%20fixes%20an%20important%20bug%20that%20was%20causing%20issues%20with%20the%20application.%0A%0AGenerated%20with%20%5BClaude%20Code%5D(https%3A%2F%2Fclaude.ai%2Fcode)";
+        "https://your-gitea-instance/owner/repo/compare/main...feature-branch?quick_pull=1&title=fix%3A%20important%20bug%20fix&body=Fixes%20%23123%0A%0A%23%23%20Description%0AThis%20PR%20fixes%20an%20important%20bug%20that%20was%20causing%20issues%20with%20the%20application.%0A%0AGenerated%20with%20%5BClaude%20Code%5D(https%3A%2F%2Fclaude.ai%2Fcode)";
       const input = {
         ...baseInput,
         currentBody: `Some comment with [Create a PR](${complexUrl})`,
@@ -201,7 +198,7 @@ describe("updateCommentBody", () => {
 
     it("handles PR links with encoded URLs containing parentheses", () => {
       const complexUrl =
-        "https://github.com/owner/repo/compare/main...feature-branch?quick_pull=1&title=fix%3A%20bug%20fix&body=Generated%20with%20%5BClaude%20Code%5D(https%3A%2F%2Fclaude.ai%2Fcode)";
+        "https://your-gitea-instance/owner/repo/compare/main...feature-branch?quick_pull=1&title=fix%3A%20bug%20fix&body=Generated%20with%20%5BClaude%20Code%5D(https%3A%2F%2Fclaude.ai%2Fcode)";
       const input = {
         ...baseInput,
         currentBody: `This PR was created.\n\n[Create a PR](${complexUrl})`,
@@ -220,9 +217,9 @@ describe("updateCommentBody", () => {
 
     it("handles PR links with unencoded spaces and special characters", () => {
       const unEncodedUrl =
-        "https://github.com/owner/repo/compare/main...feature-branch?quick_pull=1&title=fix: update welcome message&body=Generated with [Claude Code](https://claude.ai/code)";
+        "https://your-gitea-instance/owner/repo/compare/main...feature-branch?quick_pull=1&title=fix: update welcome message&body=Generated with [Claude Code](https://claude.ai/code)";
       const expectedEncodedUrl =
-        "https://github.com/owner/repo/compare/main...feature-branch?quick_pull=1&title=fix%3A+update+welcome+message&body=Generated+with+%5BClaude+Code%5D%28https%3A%2F%2Fclaude.ai%2Fcode%29";
+        "https://your-gitea-instance/owner/repo/compare/main...feature-branch?quick_pull=1&title=fix%3A+update+welcome+message&body=Generated+with+%5BClaude+Code%5D%28https%3A%2F%2Fclaude.ai%2Fcode%29";
       const input = {
         ...baseInput,
         currentBody: `This PR was created.\n\n[Create a PR](${unEncodedUrl})`,
@@ -238,7 +235,7 @@ describe("updateCommentBody", () => {
 
     it("falls back to prLink parameter when PR link in content cannot be encoded", () => {
       const invalidUrl = "not-a-valid-url-at-all";
-      const fallbackPrUrl = "https://github.com/owner/repo/pull/123";
+      const fallbackPrUrl = "https://your-gitea-instance/owner/repo/pull/123";
       const input = {
         ...baseInput,
         currentBody: `This PR was created.\n\n[Create a PR](${invalidUrl})`,
@@ -320,7 +317,8 @@ describe("updateCommentBody", () => {
           "Claude Code is working…\n\n### Todo List:\n- [x] Read README.md\n- [x] Add disclaimer",
         actionFailed: false,
         branchName: "claude-branch-123",
-        prLink: "\n[Create a PR](https://github.com/owner/repo/pr-url)",
+        prLink:
+          "\n[Create a PR](https://your-gitea-instance/owner/repo/pr-url)",
         executionDetails: {
           total_cost_usd: 0.01,
           duration_ms: 65000, // 1 minute 5 seconds
@@ -335,9 +333,7 @@ describe("updateCommentBody", () => {
         "**Claude finished @trigger-user's task in 1m 5s**",
       );
       expect(result).toContain("—— [View job]");
-      expect(result).toContain(
-        "• [`claude-branch-123`](https://github.com/owner/repo/tree/claude-branch-123)",
-      );
+      expect(result).toContain("• `claude-branch-123`");
       expect(result).toContain("• [Create PR ➔]");
 
       // Check order - header comes before separator with blank line
@@ -361,7 +357,7 @@ describe("updateCommentBody", () => {
       const input = {
         ...baseInput,
         currentBody:
-          "Claude Code is working…\n\nI've made changes.\n[Create a PR](https://github.com/owner/repo/pr-url-in-content)\n\n@john-doe",
+          "Claude Code is working…\n\nI've made changes.\n[Create a PR](https://your-gitea-instance/owner/repo/pr-url-in-content)\n\n@john-doe",
         branchName: "feature-branch",
         triggerUsername: "john-doe",
       };
@@ -370,7 +366,7 @@ describe("updateCommentBody", () => {
 
       // PR link should be moved to header
       expect(result).toContain(
-        "• [Create PR ➔](https://github.com/owner/repo/pr-url-in-content)",
+        "• [Create PR ➔](https://your-gitea-instance/owner/repo/pr-url-in-content)",
       );
       // Original link should be removed from body
       expect(result).not.toContain("[Create a PR]");
@@ -386,7 +382,7 @@ describe("updateCommentBody", () => {
         currentBody: "Claude Code is working… <img src='spinner.gif' />",
         branchName: "claude/pr-456-20240101-1200",
         prLink:
-          "\n[Create a PR](https://github.com/owner/repo/compare/main...claude/pr-456-20240101-1200)",
+          "\n[Create a PR](https://your-gitea-instance/owner/repo/compare/main...claude/pr-456-20240101-1200)",
         triggerUsername: "jane-doe",
       };
 
@@ -394,7 +390,7 @@ describe("updateCommentBody", () => {
 
       // Should include the PR link in the formatted style
       expect(result).toContain(
-        "• [Create PR ➔](https://github.com/owner/repo/compare/main...claude/pr-456-20240101-1200)",
+        "• [Create PR ➔](https://your-gitea-instance/owner/repo/compare/main...claude/pr-456-20240101-1200)",
       );
       expect(result).toContain("**Claude finished @jane-doe's task**");
     });
@@ -405,19 +401,19 @@ describe("updateCommentBody", () => {
         currentBody: "Claude Code is working…",
         branchName: "claude/issue-123-20240101-1200",
         branchLink:
-          "\n[View branch](https://github.com/owner/repo/tree/claude/issue-123-20240101-1200)",
+          "\n[View branch](https://your-gitea-instance/owner/repo/src/branch/claude/issue-123-20240101-1200)",
         prLink:
-          "\n[Create a PR](https://github.com/owner/repo/compare/main...claude/issue-123-20240101-1200)",
+          "\n[Create a PR](https://your-gitea-instance/owner/repo/compare/main...claude/issue-123-20240101-1200)",
       };
 
       const result = updateCommentBody(input);
 
       // Should include both links in formatted style
       expect(result).toContain(
-        "• [`claude/issue-123-20240101-1200`](https://github.com/owner/repo/tree/claude/issue-123-20240101-1200)",
+        "• [`claude/issue-123-20240101-1200`](https://your-gitea-instance/owner/repo/src/branch/claude/issue-123-20240101-1200)",
       );
       expect(result).toContain(
-        "• [Create PR ➔](https://github.com/owner/repo/compare/main...claude/issue-123-20240101-1200)",
+        "• [Create PR ➔](https://your-gitea-instance/owner/repo/compare/main...claude/issue-123-20240101-1200)",
       );
     });
 
@@ -426,7 +422,7 @@ describe("updateCommentBody", () => {
         currentBody: "@claude can you help with this?",
         actionFailed: false,
         executionDetails: { duration_ms: 90000 },
-        jobUrl: "https://github.com/owner/repo/actions/runs/123",
+        jobUrl: "https://your-gitea-instance/owner/repo/actions/runs/123",
         branchLink: "", // Empty branch link means branch doesn't exist remotely
         branchName: undefined, // Should be undefined when branchLink is empty
         triggerUsername: "claude",
@@ -437,7 +433,7 @@ describe("updateCommentBody", () => {
 
       expect(result).toContain("Claude finished @claude's task in 1m 30s");
       expect(result).toContain(
-        "[View job](https://github.com/owner/repo/actions/runs/123)",
+        "[View job](https://your-gitea-instance/owner/repo/actions/runs/123)",
       );
       expect(result).not.toContain("claude/issue-123");
       expect(result).not.toContain("tree/claude/issue-123");

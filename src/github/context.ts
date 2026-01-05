@@ -1,21 +1,14 @@
-import * as github from "@actions/github";
-import type {
-  IssuesEvent,
-  IssuesAssignedEvent,
-  IssueCommentEvent,
-  PullRequestEvent,
-  PullRequestReviewEvent,
-  PullRequestReviewCommentEvent,
-  WorkflowRunEvent,
-} from "@octokit/webhooks-types";
-import { CLAUDE_APP_BOT_ID, CLAUDE_BOT_LOGIN } from "./constants";
-// Custom types for GitHub Actions events that aren't webhooks
+import type { GiteaWebhookPayload } from "./types";
+import { readFileSync } from "fs";
+
+// Custom types for Gitea Actions events
 export type WorkflowDispatchEvent = {
   action?: never;
   inputs?: Record<string, any>;
   ref?: string;
   repository: {
     name: string;
+    full_name: string;
     owner: {
       login: string;
     };
@@ -31,6 +24,7 @@ export type RepositoryDispatchEvent = {
   client_payload?: Record<string, any>;
   repository: {
     name: string;
+    full_name: string;
     owner: {
       login: string;
     };
@@ -45,6 +39,7 @@ export type ScheduleEvent = {
   schedule?: string;
   repository: {
     name: string;
+    full_name: string;
     owner: {
       login: string;
     };
@@ -52,13 +47,7 @@ export type ScheduleEvent = {
 };
 
 // Event name constants for better maintainability
-const ENTITY_EVENT_NAMES = [
-  "issues",
-  "issue_comment",
-  "pull_request",
-  "pull_request_review",
-  "pull_request_review_comment",
-] as const;
+const ENTITY_EVENT_NAMES = ["issues", "issue_comment", "pull_request"] as const;
 
 const AUTOMATION_EVENT_NAMES = [
   "workflow_dispatch",
@@ -101,43 +90,83 @@ type BaseContext = {
 };
 
 // Context for entity-based events (issues, PRs, comments)
-export type ParsedGitHubContext = BaseContext & {
-  eventName: EntityEventName;
+export type GiteaContext = BaseContext & {
+  eventName: EntityEventName | AutomationEventName;
   payload:
-    | IssuesEvent
-    | IssueCommentEvent
-    | PullRequestEvent
-    | PullRequestReviewEvent
-    | PullRequestReviewCommentEvent;
-  entityNumber: number;
-  isPR: boolean;
-};
-
-// Context for automation events (workflow_dispatch, repository_dispatch, schedule, workflow_run)
-export type AutomationContext = BaseContext & {
-  eventName: AutomationEventName;
-  payload:
+    | GiteaWebhookPayload
     | WorkflowDispatchEvent
     | RepositoryDispatchEvent
-    | ScheduleEvent
-    | WorkflowRunEvent;
+    | ScheduleEvent;
+  entityNumber?: number;
+  isPR?: boolean;
 };
 
-// Union type for all contexts
-export type GitHubContext = ParsedGitHubContext | AutomationContext;
+// Helper to parse repository from Gitea format
+function parseRepository(repoString: string): {
+  owner: string;
+  repo: string;
+  full_name: string;
+} {
+  const [owner, repo] = repoString.split("/");
+  return {
+    owner,
+    repo,
+    full_name: repoString,
+  };
+}
 
-export function parseGitHubContext(): GitHubContext {
-  const context = github.context;
+export function parseGiteaContext(): GiteaContext {
+  const eventName = process.env.GITHUB_EVENT_NAME || "";
+  const runId = process.env.GITEA_RUN_ID || "";
+
+  // Log all relevant environment variables for debugging
+  console.log("Environment variables:");
+  console.log(`  GITHUB_EVENT_NAME: "${process.env.GITHUB_EVENT_NAME || ""}"`);
+  console.log(`  GITEA_RUN_ID: "${process.env.GITEA_RUN_ID || ""}"`);
+  console.log(`  GITHUB_REPOSITORY: "${process.env.GITHUB_REPOSITORY || ""}"`);
+  console.log(`  GITEA_REPOSITORY: "${process.env.GITEA_REPOSITORY || ""}"`);
+  console.log(`  GITHUB_ACTOR: "${process.env.GITHUB_ACTOR || ""}"`);
+  console.log(`  GITHUB_EVENT_PATH: "${process.env.GITHUB_EVENT_PATH || ""}"`);
+
+  const repository = parseRepository(
+    process.env.GITHUB_REPOSITORY || process.env.GITEA_REPOSITORY || "",
+  );
+  console.log(`Parsed repository:`, repository);
+  const actor = process.env.GITHUB_ACTOR || "";
+
+  // Parse webhook payload if available
+  let payload:
+    | GiteaWebhookPayload
+    | WorkflowDispatchEvent
+    | RepositoryDispatchEvent
+    | ScheduleEvent = {};
+
+  try {
+    const payloadPath = process.env.GITHUB_EVENT_PATH || "";
+    let payloadJson = "{}";
+    if (payloadPath) {
+      try {
+        // Use synchronous read to work in both Bun and act environments
+        const text = readFileSync(payloadPath, "utf-8");
+        console.log(`Payload path: ${payloadPath}`);
+        console.log(`Payload text length: ${text.length}`);
+        payloadJson = text;
+      } catch (err) {
+        console.warn("Failed to read event file:", err);
+        payloadJson = "{}";
+      }
+    }
+    payload = JSON.parse(payloadJson) as GiteaWebhookPayload;
+    console.log(`Parsed payload keys:`, Object.keys(payload));
+  } catch (error) {
+    console.warn("Failed to parse GITHUB_EVENT_PATH:", error);
+  }
 
   const commonFields = {
-    runId: process.env.GITHUB_RUN_ID!,
-    eventAction: context.payload.action,
-    repository: {
-      owner: context.repo.owner,
-      repo: context.repo.repo,
-      full_name: `${context.repo.owner}/${context.repo.repo}`,
-    },
-    actor: context.actor,
+    runId,
+    eventAction: payload.action,
+    repository,
+    actor,
     inputs: {
       prompt: process.env.PROMPT || "",
       triggerPhrase: process.env.TRIGGER_PHRASE ?? "@claude",
@@ -148,8 +177,8 @@ export function parseGitHubContext(): GitHubContext {
       useStickyComment: process.env.USE_STICKY_COMMENT === "true",
       useCommitSigning: process.env.USE_COMMIT_SIGNING === "true",
       sshSigningKey: process.env.SSH_SIGNING_KEY || "",
-      botId: process.env.BOT_ID ?? String(CLAUDE_APP_BOT_ID),
-      botName: process.env.BOT_NAME ?? CLAUDE_BOT_LOGIN,
+      botId: process.env.BOT_ID ?? "",
+      botName: process.env.BOT_NAME ?? "",
       allowedBots: process.env.ALLOWED_BOTS ?? "",
       allowedNonWriteUsers: process.env.ALLOWED_NON_WRITE_USERS ?? "",
       trackProgress: process.env.TRACK_PROGRESS === "true",
@@ -157,55 +186,34 @@ export function parseGitHubContext(): GitHubContext {
     },
   };
 
-  switch (context.eventName) {
+  switch (eventName) {
     case "issues": {
-      const payload = context.payload as IssuesEvent;
+      const giteaPayload = payload as GiteaWebhookPayload;
       return {
         ...commonFields,
         eventName: "issues",
-        payload,
-        entityNumber: payload.issue.number,
+        payload: giteaPayload,
+        entityNumber: giteaPayload.number,
         isPR: false,
       };
     }
     case "issue_comment": {
-      const payload = context.payload as IssueCommentEvent;
+      const giteaPayload = payload as GiteaWebhookPayload;
       return {
         ...commonFields,
         eventName: "issue_comment",
-        payload,
-        entityNumber: payload.issue.number,
-        isPR: Boolean(payload.issue.pull_request),
+        payload: giteaPayload,
+        entityNumber: giteaPayload.number ?? giteaPayload.issue?.number,
+        isPR: giteaPayload.pull_request !== undefined,
       };
     }
-    case "pull_request":
-    case "pull_request_target": {
-      const payload = context.payload as PullRequestEvent;
+    case "pull_request": {
+      const giteaPayload = payload as GiteaWebhookPayload;
       return {
         ...commonFields,
         eventName: "pull_request",
-        payload,
-        entityNumber: payload.pull_request.number,
-        isPR: true,
-      };
-    }
-    case "pull_request_review": {
-      const payload = context.payload as PullRequestReviewEvent;
-      return {
-        ...commonFields,
-        eventName: "pull_request_review",
-        payload,
-        entityNumber: payload.pull_request.number,
-        isPR: true,
-      };
-    }
-    case "pull_request_review_comment": {
-      const payload = context.payload as PullRequestReviewCommentEvent;
-      return {
-        ...commonFields,
-        eventName: "pull_request_review_comment",
-        payload,
-        entityNumber: payload.pull_request.number,
+        payload: giteaPayload,
+        entityNumber: giteaPayload.number,
         isPR: true,
       };
     }
@@ -213,82 +221,73 @@ export function parseGitHubContext(): GitHubContext {
       return {
         ...commonFields,
         eventName: "workflow_dispatch",
-        payload: context.payload as unknown as WorkflowDispatchEvent,
+        payload: payload as unknown as WorkflowDispatchEvent,
       };
     }
     case "repository_dispatch": {
       return {
         ...commonFields,
         eventName: "repository_dispatch",
-        payload: context.payload as unknown as RepositoryDispatchEvent,
+        payload: payload as unknown as RepositoryDispatchEvent,
       };
     }
     case "schedule": {
       return {
         ...commonFields,
         eventName: "schedule",
-        payload: context.payload as unknown as ScheduleEvent,
+        payload: payload as unknown as ScheduleEvent,
       };
     }
     case "workflow_run": {
       return {
         ...commonFields,
         eventName: "workflow_run",
-        payload: context.payload as unknown as WorkflowRunEvent,
+        payload: payload as unknown as any,
       };
     }
     default:
-      throw new Error(`Unsupported event type: ${context.eventName}`);
+      throw new Error(`Unsupported event type: ${eventName}`);
   }
 }
 
 export function isIssuesEvent(
-  context: GitHubContext,
-): context is ParsedGitHubContext & { payload: IssuesEvent } {
+  context: GiteaContext,
+): context is GiteaContext & { payload: GiteaWebhookPayload } {
   return context.eventName === "issues";
 }
 
 export function isIssueCommentEvent(
-  context: GitHubContext,
-): context is ParsedGitHubContext & { payload: IssueCommentEvent } {
+  context: GiteaContext,
+): context is GiteaContext & { payload: GiteaWebhookPayload } {
   return context.eventName === "issue_comment";
 }
 
 export function isPullRequestEvent(
-  context: GitHubContext,
-): context is ParsedGitHubContext & { payload: PullRequestEvent } {
+  context: GiteaContext,
+): context is GiteaContext & { payload: GiteaWebhookPayload } {
   return context.eventName === "pull_request";
 }
 
-export function isPullRequestReviewEvent(
-  context: GitHubContext,
-): context is ParsedGitHubContext & { payload: PullRequestReviewEvent } {
-  return context.eventName === "pull_request_review";
-}
-
-export function isPullRequestReviewCommentEvent(
-  context: GitHubContext,
-): context is ParsedGitHubContext & { payload: PullRequestReviewCommentEvent } {
-  return context.eventName === "pull_request_review_comment";
-}
-
 export function isIssuesAssignedEvent(
-  context: GitHubContext,
-): context is ParsedGitHubContext & { payload: IssuesAssignedEvent } {
+  context: GiteaContext,
+): context is GiteaContext & { payload: GiteaWebhookPayload } {
   return isIssuesEvent(context) && context.eventAction === "assigned";
 }
 
 // Type guard to check if context is an entity context (has entityNumber and isPR)
 export function isEntityContext(
-  context: GitHubContext,
-): context is ParsedGitHubContext {
-  return ENTITY_EVENT_NAMES.includes(context.eventName as EntityEventName);
+  context: GiteaContext,
+): context is GiteaContext & { entityNumber: number; isPR: boolean } {
+  return (
+    ENTITY_EVENT_NAMES.includes(context.eventName as EntityEventName) &&
+    context.entityNumber !== undefined
+  );
 }
 
 // Type guard to check if context is an automation context
 export function isAutomationContext(
-  context: GitHubContext,
-): context is AutomationContext {
+  context: GiteaContext,
+): context is GiteaContext {
   return AUTOMATION_EVENT_NAMES.includes(
     context.eventName as AutomationEventName,
   );

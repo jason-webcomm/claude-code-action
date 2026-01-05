@@ -1,15 +1,4 @@
-import type {
-  ParsedGitHubContext,
-  AutomationContext,
-  RepositoryDispatchEvent,
-} from "../src/github/context";
-import type {
-  IssuesEvent,
-  IssueCommentEvent,
-  PullRequestEvent,
-  PullRequestReviewEvent,
-  PullRequestReviewCommentEvent,
-} from "@octokit/webhooks-types";
+import type { GiteaContext, AutomationContext } from "../src/github/context";
 import { CLAUDE_APP_BOT_ID, CLAUDE_BOT_LOGIN } from "../src/github/constants";
 
 const defaultInputs = {
@@ -35,14 +24,14 @@ const defaultRepository = {
   full_name: "test-owner/test-repo",
 };
 
-type MockContextOverrides = Omit<Partial<ParsedGitHubContext>, "inputs"> & {
-  inputs?: Partial<ParsedGitHubContext["inputs"]>;
+type MockContextOverrides = Omit<Partial<GiteaContext>, "inputs"> & {
+  inputs?: Partial<GiteaContext["inputs"]>;
 };
 
 export const createMockContext = (
   overrides: MockContextOverrides = {},
-): ParsedGitHubContext => {
-  const baseContext: ParsedGitHubContext = {
+): GiteaContext => {
+  const baseContext: GiteaContext = {
     runId: "1234567890",
     eventName: "issue_comment", // Default to a valid entity event
     eventAction: "",
@@ -108,11 +97,11 @@ export const mockRepositoryDispatchContext: AutomationContext = {
     sender: {
       login: "automation-user",
     },
-  } as RepositoryDispatchEvent,
+  } as any,
   inputs: defaultInputs,
 };
 
-export const mockIssueOpenedContext: ParsedGitHubContext = {
+export const mockIssueOpenedContext: GiteaContext = {
   runId: "1234567890",
   eventName: "issues",
   eventAction: "opened",
@@ -141,13 +130,13 @@ export const mockIssueOpenedContext: ParsedGitHubContext = {
         login: "test-owner",
       },
     },
-  } as IssuesEvent,
+  } as any,
   entityNumber: 42,
   isPR: false,
   inputs: defaultInputs,
 };
 
-export const mockIssueAssignedContext: ParsedGitHubContext = {
+export const mockIssueAssignedContext: GiteaContext = {
   runId: "1234567890",
   eventName: "issues",
   eventAction: "assigned",
@@ -186,13 +175,13 @@ export const mockIssueAssignedContext: ParsedGitHubContext = {
         login: "test-owner",
       },
     },
-  } as IssuesEvent,
+  } as any,
   entityNumber: 123,
   isPR: false,
   inputs: { ...defaultInputs, assigneeTrigger: "@claude-bot" },
 };
 
-export const mockIssueLabeledContext: ParsedGitHubContext = {
+export const mockIssueLabeledContext: GiteaContext = {
   runId: "1234567890",
   eventName: "issues",
   eventAction: "labeled",
@@ -226,14 +215,14 @@ export const mockIssueLabeledContext: ParsedGitHubContext = {
         login: "test-owner",
       },
     },
-  } as IssuesEvent,
+  } as any,
   entityNumber: 1234,
   isPR: false,
   inputs: { ...defaultInputs, labelTrigger: "claude-task" },
 };
 
 // Issue comment on issue event
-export const mockIssueCommentContext: ParsedGitHubContext = {
+export const mockIssueCommentContext: GiteaContext = {
   runId: "1234567890",
   eventName: "issue_comment",
   eventAction: "created",
@@ -263,13 +252,13 @@ export const mockIssueCommentContext: ParsedGitHubContext = {
         login: "test-owner",
       },
     },
-  } as IssueCommentEvent,
+  } as any,
   entityNumber: 55,
   isPR: false,
   inputs: { ...defaultInputs, triggerPhrase: "@claude" },
 };
 
-export const mockPullRequestCommentContext: ParsedGitHubContext = {
+export const mockPullRequestCommentContext: GiteaContext = {
   runId: "1234567890",
   eventName: "issue_comment",
   eventAction: "created",
@@ -316,13 +305,13 @@ export const mockPullRequestCommentContext: ParsedGitHubContext = {
         login: "test-owner",
       },
     },
-  } as IssueCommentEvent,
+  } as any,
   entityNumber: 789,
   isPR: true,
   inputs: defaultInputs,
 };
 
-export const mockPullRequestOpenedContext: ParsedGitHubContext = {
+export const mockPullRequestOpenedContext: GiteaContext = {
   runId: "1234567890",
   eventName: "pull_request",
   eventAction: "opened",
@@ -350,153 +339,11 @@ export const mockPullRequestOpenedContext: ParsedGitHubContext = {
         login: "test-owner",
       },
     },
-  } as PullRequestEvent,
+  } as any,
   entityNumber: 456,
   isPR: true,
   inputs: defaultInputs,
 };
 
-export const mockPullRequestReviewContext: ParsedGitHubContext = {
-  runId: "1234567890",
-  eventName: "pull_request_review",
-  eventAction: "submitted",
-  repository: defaultRepository,
-  actor: "senior-developer",
-  payload: {
-    action: "submitted",
-    review: {
-      id: 11122233,
-      body: "@claude can you check if the error handling is comprehensive enough in this PR?",
-      user: {
-        login: "senior-developer",
-        id: 44444,
-        avatar_url: "https://avatars.githubusercontent.com/u/44444",
-        html_url: "https://github.com/senior-developer",
-      },
-      state: "approved",
-      html_url:
-        "https://github.com/test-owner/test-repo/pull/321#pullrequestreview-11122233",
-      submitted_at: "2024-01-15T15:30:00Z",
-    },
-    pull_request: {
-      number: 321,
-      title: "Refactor: Improve error handling in API layer",
-      body: "This PR improves error handling across all API endpoints",
-      user: {
-        login: "backend-developer",
-        id: 33333,
-        avatar_url: "https://avatars.githubusercontent.com/u/33333",
-        html_url: "https://github.com/backend-developer",
-      },
-    },
-    repository: {
-      name: "test-repo",
-      full_name: "test-owner/test-repo",
-      private: false,
-      owner: {
-        login: "test-owner",
-      },
-    },
-  } as PullRequestReviewEvent,
-  entityNumber: 321,
-  isPR: true,
-  inputs: { ...defaultInputs, triggerPhrase: "@claude" },
-};
-
-export const mockPullRequestReviewWithoutCommentContext: ParsedGitHubContext = {
-  runId: "1234567890",
-  eventName: "pull_request_review",
-  eventAction: "dismissed",
-  repository: defaultRepository,
-  actor: "senior-developer",
-  payload: {
-    action: "submitted",
-    review: {
-      id: 11122233,
-      body: null, // Simulating approval without comment
-      user: {
-        login: "senior-developer",
-        id: 44444,
-        avatar_url: "https://avatars.githubusercontent.com/u/44444",
-        html_url: "https://github.com/senior-developer",
-      },
-      state: "approved",
-      html_url:
-        "https://github.com/test-owner/test-repo/pull/321#pullrequestreview-11122233",
-      submitted_at: "2024-01-15T15:30:00Z",
-    },
-    pull_request: {
-      number: 321,
-      title: "Refactor: Improve error handling in API layer",
-      body: "This PR improves error handling across all API endpoints",
-      user: {
-        login: "backend-developer",
-        id: 33333,
-        avatar_url: "https://avatars.githubusercontent.com/u/33333",
-        html_url: "https://github.com/backend-developer",
-      },
-    },
-    repository: {
-      name: "test-repo",
-      full_name: "test-owner/test-repo",
-      private: false,
-      owner: {
-        login: "test-owner",
-      },
-    },
-  } as PullRequestReviewEvent,
-  entityNumber: 321,
-  isPR: true,
-  inputs: { ...defaultInputs, triggerPhrase: "@claude" },
-};
-
-export const mockPullRequestReviewCommentContext: ParsedGitHubContext = {
-  runId: "1234567890",
-  eventName: "pull_request_review_comment",
-  eventAction: "created",
-  repository: defaultRepository,
-  actor: "code-reviewer",
-  payload: {
-    action: "created",
-    comment: {
-      id: 99988877,
-      body: "/claude is this the most efficient way to implement this algorithm?",
-      user: {
-        login: "code-reviewer",
-        id: 22222,
-        avatar_url: "https://avatars.githubusercontent.com/u/22222",
-        html_url: "https://github.com/code-reviewer",
-      },
-      path: "src/utils/algorithm.js",
-      position: 25,
-      line: 42,
-      commit_id: "xyz789abc123",
-      created_at: "2024-01-15T16:45:00Z",
-      updated_at: "2024-01-15T16:45:00Z",
-      html_url:
-        "https://github.com/test-owner/test-repo/pull/999#discussion_r99988877",
-    },
-    pull_request: {
-      number: 999,
-      title: "Performance: Optimize search algorithm",
-      body: "This PR optimizes the search algorithm for better performance",
-      user: {
-        login: "performance-dev",
-        id: 11111,
-        avatar_url: "https://avatars.githubusercontent.com/u/11111",
-        html_url: "https://github.com/performance-dev",
-      },
-    },
-    repository: {
-      name: "test-repo",
-      full_name: "test-owner/test-repo",
-      private: false,
-      owner: {
-        login: "test-owner",
-      },
-    },
-  } as PullRequestReviewCommentEvent,
-  entityNumber: 999,
-  isPR: true,
-  inputs: defaultInputs,
-};
+// Gitea does not have pull_request_review or pull_request_review_comment events
+// These GitHub-specific event types are not supported in Gitea

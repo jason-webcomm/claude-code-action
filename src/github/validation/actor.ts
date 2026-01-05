@@ -5,30 +5,51 @@
  * Prevents automated tools or bots from triggering Claude
  */
 
-import type { Octokit } from "@octokit/rest";
-import type { ParsedGitHubContext } from "../context";
+import { GITEA_API_URL, GITEA_TOKEN } from "../api/config";
+import type { GiteaContext } from "../context";
 
-export async function checkHumanActor(
-  octokit: Octokit,
-  githubContext: ParsedGitHubContext,
-) {
-  // Fetch user information from GitHub API
-  const { data: userData } = await octokit.users.getByUsername({
-    username: githubContext.actor,
+export async function checkHumanActor(giteaContext: GiteaContext) {
+  // Fetch user information from Gitea API
+  const response = await fetch(`${GITEA_API_URL}/users/${giteaContext.actor}`, {
+    headers: {
+      Authorization: `token ${GITEA_TOKEN}`,
+      Accept: "application/json",
+    },
   });
 
-  const actorType = userData.type;
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch user information: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const userData = (await response.json()) as {
+    login: string;
+    full_name?: string;
+    email?: string;
+    avatar_url?: string;
+    type?: string;
+  };
+
+  const actorLogin = userData.login;
+  console.log(`Actor login: ${actorLogin}`);
+
+  // Check if actor is a bot (Gitea doesn't have a "type" field like GitHub, so we check login patterns)
+  const actorType =
+    actorLogin.endsWith("[bot]") || actorLogin.startsWith("bot-")
+      ? "Bot"
+      : "User";
 
   console.log(`Actor type: ${actorType}`);
 
   // Check bot permissions if actor is not a User
   if (actorType !== "User") {
-    const allowedBots = githubContext.inputs.allowedBots;
+    const allowedBots = giteaContext.inputs.allowedBots;
 
     // Check if all bots are allowed
     if (allowedBots.trim() === "*") {
       console.log(
-        `All bots are allowed, skipping human actor check for: ${githubContext.actor}`,
+        `All bots are allowed, skipping human actor check for: ${actorLogin}`,
       );
       return;
     }
@@ -44,7 +65,7 @@ export async function checkHumanActor(
       )
       .filter((bot) => bot.length > 0);
 
-    const botName = githubContext.actor.toLowerCase().replace(/\[bot\]$/, "");
+    const botName = actorLogin.toLowerCase().replace(/\[bot\]$/, "");
 
     // Check if specific bot is allowed
     if (allowedBotsList.includes(botName)) {
@@ -60,5 +81,5 @@ export async function checkHumanActor(
     );
   }
 
-  console.log(`Verified human actor: ${githubContext.actor}`);
+  console.log(`Verified human actor: ${actorLogin}`);
 }

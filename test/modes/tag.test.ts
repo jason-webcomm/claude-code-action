@@ -1,11 +1,10 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { tagMode } from "../../src/modes/tag";
-import type { ParsedGitHubContext } from "../../src/github/context";
-import type { IssueCommentEvent } from "@octokit/webhooks-types";
+import type { GiteaContext } from "../../src/github/context";
 import { createMockContext } from "../mockContext";
 
 describe("Tag Mode", () => {
-  let mockContext: ParsedGitHubContext;
+  let mockContext: GiteaContext;
 
   beforeEach(() => {
     mockContext = createMockContext({
@@ -34,7 +33,7 @@ describe("Tag Mode", () => {
         comment: {
           body: "Hey @claude, can you help?",
         },
-      } as IssueCommentEvent,
+      } as any,
     });
 
     expect(tagMode.shouldTrigger(contextWithTrigger)).toBe(true);
@@ -50,7 +49,7 @@ describe("Tag Mode", () => {
         comment: {
           body: "This is just a regular comment",
         },
-      } as IssueCommentEvent,
+      } as any,
     });
 
     expect(tagMode.shouldTrigger(contextWithoutTrigger)).toBe(false);
@@ -66,7 +65,7 @@ describe("Tag Mode", () => {
     const context = tagMode.prepareContext(mockContext, data);
 
     expect(context.mode).toBe("tag");
-    expect(context.githubContext).toBe(mockContext);
+    expect(context.giteaContext).toBe(mockContext);
     expect(context.commentId).toBe(123);
     expect(context.baseBranch).toBe("main");
     expect(context.claudeBranch).toBe("claude/fix-bug");
@@ -76,7 +75,7 @@ describe("Tag Mode", () => {
     const context = tagMode.prepareContext(mockContext);
 
     expect(context.mode).toBe("tag");
-    expect(context.githubContext).toBe(mockContext);
+    expect(context.giteaContext).toBe(mockContext);
     expect(context.commentId).toBeUndefined();
     expect(context.baseBranch).toBeUndefined();
     expect(context.claudeBranch).toBeUndefined();

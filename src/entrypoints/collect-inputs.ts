@@ -1,4 +1,4 @@
-import * as core from "@actions/core";
+import * as core from "../gitea-actions/core";
 
 export function collectActionInputsPresence(): void {
   const inputDefaults: Record<string, string> = {

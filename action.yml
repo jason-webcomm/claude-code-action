@@ -52,6 +52,15 @@ inputs:
   github_token:
     description: "GitHub token with repo and pull request permissions (optional if using GitHub App)"
     required: false
+  gitea_token:
+    description: "Gitea token for API access (required when using Gitea)"
+    required: false
+  gitea_server_url:
+    description: "Gitea server URL (e.g., https://gitea.example.com)"
+    required: false
+  gitea_api_url:
+    description: "Gitea API URL (e.g., https://gitea.example.com/api/v1)"
+    required: false
   use_bedrock:
     description: "Use Amazon Bedrock with OIDC authentication instead of direct Anthropic API"
     required: false
@@ -179,9 +188,12 @@ runs:
         BASE_BRANCH: ${{ inputs.base_branch }}
         BRANCH_PREFIX: ${{ inputs.branch_prefix }}
         OVERRIDE_GITHUB_TOKEN: ${{ inputs.github_token }}
+        GITEA_TOKEN: ${{ inputs.gitea_token }}
+        GITEA_SERVER_URL: ${{ inputs.gitea_server_url }}
+        GITEA_API_URL: ${{ inputs.gitea_api_url }}
         ALLOWED_BOTS: ${{ inputs.allowed_bots }}
         ALLOWED_NON_WRITE_USERS: ${{ inputs.allowed_non_write_users }}
-        GITHUB_RUN_ID: ${{ github.run_id }}
+        GITEA_RUN_ID: ${{ github.run_id }}
         USE_STICKY_COMMENT: ${{ inputs.use_sticky_comment }}
         DEFAULT_WORKFLOW_TOKEN: ${{ github.token }}
         USE_COMMIT_SIGNING: ${{ inputs.use_commit_signing }}
@@ -195,7 +207,7 @@ runs:
         ALL_INPUTS: ${{ toJson(inputs) }}
 
     - name: Install Base Action Dependencies
-      if: steps.prepare.outputs.contains_trigger == 'true'
+      if: env.contains_trigger == 'true'
       shell: bash
       env:
         PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
@@ -235,7 +247,7 @@ runs:
 
     - name: Run Claude Code
       id: claude-code
-      if: steps.prepare.outputs.contains_trigger == 'true'
+      if: env.contains_trigger == 'true'
       shell: bash
       run: |
 
@@ -246,9 +258,9 @@ runs:
         CLAUDE_CODE_ACTION: "1"
         INPUT_PROMPT_FILE: ${{ runner.temp }}/claude-prompts/claude-prompt.txt
         INPUT_SETTINGS: ${{ inputs.settings }}
-        INPUT_CLAUDE_ARGS: ${{ steps.prepare.outputs.claude_args }}
+        INPUT_CLAUDE_ARGS: ${{ env.claude_args }}
         INPUT_EXPERIMENTAL_SLASH_COMMANDS_DIR: ${{ github.action_path }}/slash-commands
-        INPUT_ACTION_INPUTS_PRESENT: ${{ steps.prepare.outputs.action_inputs_present }}
+        INPUT_ACTION_INPUTS_PRESENT: ${{ env.action_inputs_present }}
         INPUT_PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
         INPUT_PATH_TO_BUN_EXECUTABLE: ${{ inputs.path_to_bun_executable }}
         INPUT_SHOW_FULL_OUTPUT: ${{ inputs.show_full_output }}
@@ -256,8 +268,8 @@ runs:
         INPUT_PLUGIN_MARKETPLACES: ${{ inputs.plugin_marketplaces }}
 
         # Model configuration
-        GITHUB_TOKEN: ${{ steps.prepare.outputs.GITHUB_TOKEN }}
-        GH_TOKEN: ${{ steps.prepare.outputs.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ env.GITHUB_TOKEN }}
         NODE_VERSION: ${{ env.NODE_VERSION }}
         DETAILED_PERMISSION_MESSAGES: "1"
 
@@ -297,33 +309,33 @@ runs:
         ANTHROPIC_DEFAULT_OPUS_MODEL: ${{ env.ANTHROPIC_DEFAULT_OPUS_MODEL }}
 
     - name: Update comment with job link
-      if: steps.prepare.outputs.contains_trigger == 'true' && steps.prepare.outputs.claude_comment_id && always()
+      if: env.contains_trigger == 'true' && env.claude_comment_id && always()
       shell: bash
       run: |
         bun run ${GITHUB_ACTION_PATH}/src/entrypoints/update-comment-link.ts
       env:
         REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        CLAUDE_COMMENT_ID: ${{ steps.prepare.outputs.claude_comment_id }}
-        GITHUB_RUN_ID: ${{ github.run_id }}
-        GITHUB_TOKEN: ${{ steps.prepare.outputs.GITHUB_TOKEN }}
-        GH_TOKEN: ${{ steps.prepare.outputs.GITHUB_TOKEN }}
+        CLAUDE_COMMENT_ID: ${{ env.claude_comment_id }}
+        GITEA_RUN_ID: ${{ github.run_id }}
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ env.GITHUB_TOKEN }}
         GITHUB_EVENT_NAME: ${{ github.event_name }}
         TRIGGER_COMMENT_ID: ${{ github.event.comment.id }}
-        CLAUDE_BRANCH: ${{ steps.prepare.outputs.CLAUDE_BRANCH }}
+        CLAUDE_BRANCH: ${{ env.CLAUDE_BRANCH }}
         IS_PR: ${{ github.event.issue.pull_request != null || github.event_name == 'pull_request_target' || github.event_name == 'pull_request_review_comment' }}
-        BASE_BRANCH: ${{ steps.prepare.outputs.BASE_BRANCH }}
+        BASE_BRANCH: ${{ env.BASE_BRANCH }}
         CLAUDE_SUCCESS: ${{ steps.claude-code.outputs.conclusion == 'success' }}
         OUTPUT_FILE: ${{ steps.claude-code.outputs.execution_file || '' }}
         TRIGGER_USERNAME: ${{ github.event.comment.user.login || github.event.issue.user.login || github.event.pull_request.user.login || github.event.sender.login || github.triggering_actor || github.actor || '' }}
         PREPARE_SUCCESS: ${{ steps.prepare.outcome == 'success' }}
-        PREPARE_ERROR: ${{ steps.prepare.outputs.prepare_error || '' }}
+        PREPARE_ERROR: ${{ env.prepare_error || '' }}
         USE_STICKY_COMMENT: ${{ inputs.use_sticky_comment }}
         USE_COMMIT_SIGNING: ${{ inputs.use_commit_signing }}
         TRACK_PROGRESS: ${{ inputs.track_progress }}
 
     - name: Display Claude Code Report
-      if: steps.prepare.outputs.contains_trigger == 'true' && steps.claude-code.outputs.execution_file != ''
+      if: env.contains_trigger == 'true' && steps.claude-code.outputs.execution_file != ''
       shell: bash
       run: |
         # Try to format the turns, but if it fails, dump the raw JSON

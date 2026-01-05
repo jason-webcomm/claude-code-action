@@ -9,13 +9,13 @@ import {
 import type { PreparedContext } from "../src/create-prompt";
 import type { Mode } from "../src/modes/types";
 
-describe("pull_request_target event support", () => {
+describe("pull_request event support", () => {
   // Mock tag mode for testing
   const mockTagMode: Mode = {
     name: "tag",
     description: "Tag mode",
     shouldTrigger: () => true,
-    prepareContext: (context) => ({ mode: "tag", githubContext: context }),
+    prepareContext: (context) => ({ mode: "tag", giteaContext: context }),
     getAllowedTools: () => [],
     getDisallowedTools: () => [],
     shouldCreateTrackingComment: () => true,
@@ -34,90 +34,73 @@ describe("pull_request_target event support", () => {
 
   const mockGitHubData = {
     contextData: {
+      id: 123,
+      number: 123,
       title: "External PR via pull_request_target",
       body: "This PR comes from a forked repository",
-      author: { login: "external-contributor" },
-      state: "OPEN",
-      createdAt: "2023-01-01T00:00:00Z",
+      user: {
+        login: "external-contributor",
+      },
+      base: {
+        label: "main",
+        ref: "main",
+        sha: "def456",
+        repo: {
+          full_name: "owner/repo",
+          html_url: "https://example.com/owner/repo",
+        },
+      },
+      head: {
+        label: "feature-branch",
+        ref: "feature-branch",
+        sha: "abc123",
+        repo: {
+          full_name: "external/repo",
+          html_url: "https://example.com/external/repo",
+        },
+      },
+      html_url: "https://example.com/owner/repo/pull/123",
+      diff_url: "https://example.com/owner/repo/pull/123.diff",
+      patch_url: "https://example.com/owner/repo/pull/123.patch",
+      created_at: "2023-01-01T00:00:00Z",
+      updated_at: "2023-01-01T00:00:00Z",
+      merged: false,
+      state: "open",
       additions: 25,
       deletions: 3,
-      baseRefName: "main",
-      headRefName: "feature-branch",
-      headRefOid: "abc123",
-      commits: {
-        totalCount: 2,
-        nodes: [
-          {
-            commit: {
-              oid: "commit1",
-              message: "Initial feature implementation",
-              author: {
-                name: "External Dev",
-                email: "external@example.com",
-              },
-            },
-          },
-          {
-            commit: {
-              oid: "commit2",
-              message: "Fix typos and formatting",
-              author: {
-                name: "External Dev",
-                email: "external@example.com",
-              },
-            },
-          },
-        ],
-      },
-      files: {
-        nodes: [
-          {
-            path: "src/feature.ts",
-            additions: 20,
-            deletions: 2,
-            changeType: "MODIFIED",
-          },
-          {
-            path: "tests/feature.test.ts",
-            additions: 5,
-            deletions: 1,
-            changeType: "ADDED",
-          },
-        ],
-      },
-      comments: { nodes: [] },
-      reviews: { nodes: [] },
+      changed_files: 2,
+      commits: 2,
+      review_comments: 0,
     },
     comments: [],
     changedFiles: [],
     changedFilesWithSHA: [
       {
-        path: "src/feature.ts",
+        filename: "src/feature.ts",
         additions: 20,
         deletions: 2,
-        changeType: "MODIFIED",
-        sha: "abc123",
+        status: "modified",
+        changes: 22,
       },
       {
-        path: "tests/feature.test.ts",
+        filename: "tests/feature.test.ts",
         additions: 5,
         deletions: 1,
-        changeType: "ADDED",
-        sha: "abc123",
+        status: "added",
+        changes: 6,
       },
     ],
-    reviewData: { nodes: [] },
     imageUrlMap: new Map<string, string>(),
   };
 
-  describe("prompt generation for pull_request_target", () => {
+  describe("prompt generation for pull_request", () => {
     test("should generate correct prompt for pull_request_target event", () => {
       const envVars: PreparedContext = {
         repository: "owner/repo",
         claudeCommentId: "12345",
         triggerPhrase: "@claude",
         eventData: {
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           eventAction: "opened",
           isPR: true,
           prNumber: "123",
@@ -140,12 +123,8 @@ describe("pull_request_target event support", () => {
       );
 
       // Should contain PR-specific information
-      expect(prompt).toContain(
-        "- src/feature.ts (MODIFIED) +20/-2 SHA: abc123",
-      );
-      expect(prompt).toContain(
-        "- tests/feature.test.ts (ADDED) +5/-1 SHA: abc123",
-      );
+      expect(prompt).toContain("- src/feature.ts (modified) +20/-2");
+      expect(prompt).toContain("- tests/feature.test.ts (added) +5/-1");
       expect(prompt).toContain("external-contributor");
       expect(prompt).toContain("<repository>owner/repo</repository>");
     });
@@ -156,7 +135,7 @@ describe("pull_request_target event support", () => {
         claudeCommentId: "12345",
         triggerPhrase: "@claude",
         eventData: {
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           eventAction: "synchronize",
           isPR: true,
           prNumber: "456",
@@ -175,10 +154,10 @@ describe("pull_request_target event support", () => {
       expect(prompt).toContain(
         "Always push to the existing branch when triggered on a PR",
       );
-      expect(prompt).toContain("mcp__github_comment__update_claude_comment");
+      expect(prompt).toContain("mcp__gitea_comment__update_claude_comment");
 
       // Should not include commit signing tools
-      expect(prompt).not.toContain("mcp__github_file_ops__commit_files");
+      expect(prompt).not.toContain("mcp__gitea_file_ops__commit_files");
     });
 
     test("should handle pull_request_target with commit signing enabled", () => {
@@ -187,7 +166,7 @@ describe("pull_request_target event support", () => {
         claudeCommentId: "12345",
         triggerPhrase: "@claude",
         eventData: {
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           eventAction: "synchronize",
           isPR: true,
           prNumber: "456",
@@ -197,9 +176,9 @@ describe("pull_request_target event support", () => {
       const prompt = generatePrompt(envVars, mockGitHubData, true, mockTagMode);
 
       // Should include commit signing tools
-      expect(prompt).toContain("mcp__github_file_ops__commit_files");
-      expect(prompt).toContain("mcp__github_file_ops__delete_files");
-      expect(prompt).toContain("mcp__github_comment__update_claude_comment");
+      expect(prompt).toContain("mcp__gitea_file_ops__commit_files");
+      expect(prompt).toContain("mcp__gitea_file_ops__delete_files");
+      expect(prompt).toContain("mcp__gitea_comment__update_claude_comment");
 
       // Should not include git command instructions
       expect(prompt).not.toContain("Use git commands via the Bash tool");
@@ -211,7 +190,7 @@ describe("pull_request_target event support", () => {
         claudeCommentId: "12345",
         triggerPhrase: "@claude",
         eventData: {
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           eventAction: "opened",
           isPR: true,
           prNumber: "123",
@@ -234,7 +213,7 @@ describe("pull_request_target event support", () => {
         ...baseContext,
         eventData: {
           ...baseContext.eventData,
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           isPR: true,
           prNumber: "123",
         },
@@ -284,7 +263,7 @@ describe("pull_request_target event support", () => {
         triggerPhrase: "@claude",
         prompt: "Review this pull_request_target PR for security issues",
         eventData: {
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           eventAction: "opened",
           isPR: true,
           prNumber: "789",
@@ -333,7 +312,7 @@ describe("pull_request_target event support", () => {
         claudeCommentId: "12345",
         triggerPhrase: "@claude",
         eventData: {
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           eventAction: "synchronize",
           isPR: true,
           prNumber: "456",
@@ -356,7 +335,7 @@ describe("pull_request_target event support", () => {
     });
   });
 
-  describe("pull_request_target vs pull_request behavior consistency", () => {
+  describe("pull_request behavior consistency", () => {
     test("should produce identical event processing for both event types", () => {
       const baseEventData = {
         eventAction: "opened",
@@ -382,7 +361,7 @@ describe("pull_request_target event support", () => {
         triggerPhrase: "@claude",
         eventData: {
           ...baseEventData,
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           isPR: true,
           prNumber: "100",
         },
@@ -403,7 +382,7 @@ describe("pull_request_target event support", () => {
         claudeCommentId: "12345",
         triggerPhrase: "@claude",
         eventData: {
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           isPR: true,
           prNumber: "1",
         },
@@ -419,7 +398,7 @@ describe("pull_request_target event support", () => {
       }).not.toThrow();
     });
 
-    test("should handle all valid pull_request_target actions", () => {
+    test("should handle all valid pull_request actions", () => {
       const actions = ["opened", "synchronize", "reopened", "closed", "edited"];
 
       actions.forEach((action) => {
@@ -428,7 +407,7 @@ describe("pull_request_target event support", () => {
           claudeCommentId: "12345",
           triggerPhrase: "@claude",
           eventData: {
-            eventName: "pull_request_target",
+            eventName: "pull_request",
             eventAction: action,
             isPR: true,
             prNumber: "1",
@@ -442,7 +421,7 @@ describe("pull_request_target event support", () => {
     });
   });
 
-  describe("security considerations for pull_request_target", () => {
+  describe("security considerations for pull_request", () => {
     test("should maintain same prompt structure regardless of event source", () => {
       // Test that external PRs don't get different treatment in prompts
       const internalPR: PreparedContext = {
@@ -462,7 +441,7 @@ describe("pull_request_target event support", () => {
         claudeCommentId: "12345",
         triggerPhrase: "@claude",
         eventData: {
-          eventName: "pull_request_target",
+          eventName: "pull_request",
           eventAction: "opened",
           isPR: true,
           prNumber: "1",
@@ -484,9 +463,9 @@ describe("pull_request_target event support", () => {
 
       // Should have same tool access patterns
       expect(
-        internalPrompt.includes("mcp__github_comment__update_claude_comment"),
+        internalPrompt.includes("mcp__gitea_comment__update_claude_comment"),
       ).toBe(
-        externalPrompt.includes("mcp__github_comment__update_claude_comment"),
+        externalPrompt.includes("mcp__gitea_comment__update_claude_comment"),
       );
 
       // Should have same branch handling instructions

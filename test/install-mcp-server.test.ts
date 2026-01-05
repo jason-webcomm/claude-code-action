@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { prepareMcpConfig } from "../src/mcp/install-mcp-server";
-import * as core from "@actions/core";
-import type { ParsedGitHubContext } from "../src/github/context";
+import * as core from "../src/gitea-actions/core";
+import type { GiteaContext } from "../src/github/context";
 import { CLAUDE_APP_BOT_ID, CLAUDE_BOT_LOGIN } from "../src/github/constants";
 
 describe("prepareMcpConfig", () => {
@@ -11,14 +11,14 @@ describe("prepareMcpConfig", () => {
   let processExitSpy: any;
 
   // Create a mock context for tests
-  const mockContext: ParsedGitHubContext = {
+  const mockContext: GiteaContext = {
     runId: "test-run-id",
     eventName: "issue_comment",
     eventAction: "created",
     repository: {
+      full_name: "test-owner/test-repo",
       owner: "test-owner",
       repo: "test-repo",
-      full_name: "test-owner/test-repo",
     },
     actor: "test-actor",
     payload: {} as any,
@@ -42,14 +42,14 @@ describe("prepareMcpConfig", () => {
     },
   };
 
-  const mockPRContext: ParsedGitHubContext = {
+  const mockPRContext: GiteaContext = {
     ...mockContext,
     eventName: "pull_request",
     isPR: true,
     entityNumber: 456,
   };
 
-  const mockContextWithSigning: ParsedGitHubContext = {
+  const mockContextWithSigning: GiteaContext = {
     ...mockContext,
     inputs: {
       ...mockContext.inputs,
@@ -66,8 +66,8 @@ describe("prepareMcpConfig", () => {
     });
 
     // Set up required environment variables
-    if (!process.env.GITHUB_ACTION_PATH) {
-      process.env.GITHUB_ACTION_PATH = "/test/action/path";
+    if (!process.env.GITEA_ACTION_PATH) {
+      process.env.GITEA_ACTION_PATH = "/test/action/path";
     }
   });
 
@@ -80,7 +80,7 @@ describe("prepareMcpConfig", () => {
 
   test("should return comment server when commit signing is disabled", async () => {
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
@@ -94,15 +94,13 @@ describe("prepareMcpConfig", () => {
     expect(parsed.mcpServers).toBeDefined();
     expect(parsed.mcpServers.github).not.toBeDefined();
     expect(parsed.mcpServers.github_file_ops).not.toBeDefined();
-    expect(parsed.mcpServers.github_comment).toBeDefined();
-    expect(parsed.mcpServers.github_comment.env.GITHUB_TOKEN).toBe(
-      "test-token",
-    );
+    expect(parsed.mcpServers.gitea_comment).toBeDefined();
+    expect(parsed.mcpServers.gitea_comment.env.GITEA_TOKEN).toBe("test-token");
   });
 
   test("should include file ops server when commit signing is enabled", async () => {
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
@@ -115,60 +113,58 @@ describe("prepareMcpConfig", () => {
     const parsed = JSON.parse(result);
     expect(parsed.mcpServers).toBeDefined();
     expect(parsed.mcpServers.github).not.toBeDefined();
-    expect(parsed.mcpServers.github_file_ops).toBeDefined();
-    expect(parsed.mcpServers.github_file_ops.env.GITHUB_TOKEN).toBe(
-      "test-token",
-    );
-    expect(parsed.mcpServers.github_file_ops.env.BRANCH_NAME).toBe(
+    expect(parsed.mcpServers.gitea_file_ops).toBeDefined();
+    expect(parsed.mcpServers.gitea_file_ops.env.GITEA_TOKEN).toBe("test-token");
+    expect(parsed.mcpServers.gitea_file_ops.env.BRANCH_NAME).toBe(
       "test-branch",
     );
   });
 
-  test("should include github MCP server when mcp__github__ tools are allowed", async () => {
+  test("should include gitea MCP server when mcp__gitea__ tools are allowed", async () => {
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
       baseBranch: "main",
-      allowedTools: ["mcp__github__create_issue", "mcp__github__create_pr"],
+      allowedTools: ["mcp__gitea__create_issue", "mcp__gitea__create_pr"],
       mode: "tag",
       context: mockContext,
     });
 
     const parsed = JSON.parse(result);
     expect(parsed.mcpServers).toBeDefined();
-    expect(parsed.mcpServers.github).toBeDefined();
-    expect(parsed.mcpServers.github.command).toBe("docker");
-    expect(parsed.mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN).toBe(
+    expect(parsed.mcpServers.gitea).toBeDefined();
+    expect(parsed.mcpServers.gitea.command).toBe("docker");
+    expect(parsed.mcpServers.gitea.env.GITEA_PERSONAL_ACCESS_TOKEN).toBe(
       "test-token",
     );
   });
 
   test("should include inline comment server for PRs when tools are allowed", async () => {
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
       baseBranch: "main",
-      allowedTools: ["mcp__github_inline_comment__create_inline_comment"],
+      allowedTools: ["mcp__gitea_inline_comment__create_inline_comment"],
       mode: "tag",
       context: mockPRContext,
     });
 
     const parsed = JSON.parse(result);
     expect(parsed.mcpServers).toBeDefined();
-    expect(parsed.mcpServers.github_inline_comment).toBeDefined();
-    expect(parsed.mcpServers.github_inline_comment.env.GITHUB_TOKEN).toBe(
+    expect(parsed.mcpServers.gitea_inline_comment).toBeDefined();
+    expect(parsed.mcpServers.gitea_inline_comment.env.GITEA_TOKEN).toBe(
       "test-token",
     );
-    expect(parsed.mcpServers.github_inline_comment.env.PR_NUMBER).toBe("456");
+    expect(parsed.mcpServers.gitea_inline_comment.env.PR_NUMBER).toBe("456");
   });
 
-  test("should include comment server when no GitHub tools are allowed and signing disabled", async () => {
+  test("should include comment server when no Gitea tools are allowed and signing disabled", async () => {
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
@@ -182,14 +178,14 @@ describe("prepareMcpConfig", () => {
     expect(parsed.mcpServers).toBeDefined();
     expect(parsed.mcpServers.github).not.toBeDefined();
     expect(parsed.mcpServers.github_file_ops).not.toBeDefined();
-    expect(parsed.mcpServers.github_comment).toBeDefined();
+    expect(parsed.mcpServers.gitea_comment).toBeDefined();
   });
 
-  test("should set GITHUB_ACTION_PATH correctly", async () => {
-    process.env.GITHUB_ACTION_PATH = "/test/action/path";
+  test("should set GITEA_ACTION_PATH correctly", async () => {
+    process.env.GITEA_ACTION_PATH = "/test/action/path";
 
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
@@ -200,16 +196,16 @@ describe("prepareMcpConfig", () => {
     });
 
     const parsed = JSON.parse(result);
-    expect(parsed.mcpServers.github_file_ops.args).toContain(
-      "/test/action/path/src/mcp/github-file-ops-server.ts",
+    expect(parsed.mcpServers.gitea_file_ops.args).toContain(
+      "/test/action/path/src/mcp/gitea-file-ops-server.ts",
     );
   });
 
-  test("should use current working directory when GITHUB_WORKSPACE is not set", async () => {
-    delete process.env.GITHUB_WORKSPACE;
+  test("should use current working directory when GITEA_WORKSPACE is not set", async () => {
+    delete process.env.GITEA_WORKSPACE;
 
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
@@ -220,14 +216,14 @@ describe("prepareMcpConfig", () => {
     });
 
     const parsed = JSON.parse(result);
-    expect(parsed.mcpServers.github_file_ops.env.REPO_DIR).toBe(process.cwd());
+    expect(parsed.mcpServers.gitea_file_ops.env.REPO_DIR).toBe(process.cwd());
   });
 
   test("should include CI server when context.isPR is true and DEFAULT_WORKFLOW_TOKEN exists", async () => {
     process.env.DEFAULT_WORKFLOW_TOKEN = "workflow-token";
 
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
@@ -238,16 +234,18 @@ describe("prepareMcpConfig", () => {
     });
 
     const parsed = JSON.parse(result);
-    expect(parsed.mcpServers.github_ci).toBeDefined();
-    expect(parsed.mcpServers.github_ci.env.GITHUB_TOKEN).toBe("workflow-token");
-    expect(parsed.mcpServers.github_ci.env.PR_NUMBER).toBe("456");
+    expect(parsed.mcpServers.gitea_actions).toBeDefined();
+    expect(parsed.mcpServers.gitea_actions.env.GITEA_TOKEN).toBe(
+      "workflow-token",
+    );
+    expect(parsed.mcpServers.gitea_actions.env.PR_NUMBER).toBe("456");
 
     delete process.env.DEFAULT_WORKFLOW_TOKEN;
   });
 
-  test("should not include github_ci server when context.isPR is false", async () => {
+  test("should not include gitea_actions server when context.isPR is false", async () => {
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
@@ -258,14 +256,14 @@ describe("prepareMcpConfig", () => {
     });
 
     const parsed = JSON.parse(result);
-    expect(parsed.mcpServers.github_ci).not.toBeDefined();
+    expect(parsed.mcpServers.gitea_actions).not.toBeDefined();
   });
 
-  test("should not include github_ci server when DEFAULT_WORKFLOW_TOKEN is missing", async () => {
+  test("should not include gitea_actions server when DEFAULT_WORKFLOW_TOKEN is missing", async () => {
     delete process.env.DEFAULT_WORKFLOW_TOKEN;
 
     const result = await prepareMcpConfig({
-      githubToken: "test-token",
+      giteaToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
       branch: "test-branch",
@@ -276,6 +274,6 @@ describe("prepareMcpConfig", () => {
     });
 
     const parsed = JSON.parse(result);
-    expect(parsed.mcpServers.github_ci).not.toBeDefined();
+    expect(parsed.mcpServers.gitea_actions).not.toBeDefined();
   });
 });

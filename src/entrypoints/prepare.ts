@@ -1,15 +1,14 @@
 #!/usr/bin/env bun
 
 /**
- * Prepare the Claude action by checking trigger conditions, verifying human actor,
+ * Prepare the Gitea action by checking trigger conditions, verifying human actor,
  * and creating the initial tracking comment
  */
 
-import * as core from "@actions/core";
-import { setupGitHubToken } from "../github/token";
+import * as core from "../gitea-actions/core";
+import { setupGiteaToken } from "../github/token";
 import { checkWritePermissions } from "../github/validation/permissions";
-import { createOctokit } from "../github/api/client";
-import { parseGitHubContext, isEntityContext } from "../github/context";
+import { parseGiteaContext, isEntityContext } from "../github/context";
 import { getMode } from "../modes/registry";
 import { prepare } from "../prepare";
 import { collectActionInputsPresence } from "./collect-inputs";
@@ -18,25 +17,34 @@ async function run() {
   try {
     collectActionInputsPresence();
 
-    // Parse GitHub context first to enable mode detection
-    const context = parseGitHubContext();
+    // Parse Gitea context first to enable mode detection
+    const context = parseGiteaContext();
 
     // Auto-detect mode based on context
     const mode = getMode(context);
 
-    // Setup GitHub token
-    const githubToken = await setupGitHubToken();
-    const octokit = createOctokit(githubToken);
+    // Setup Gitea token
+    const giteaToken = await setupGiteaToken();
+
+    // If no mode detected, set outputs and exit early
+    if (!mode) {
+      console.log("No trigger found, skipping remaining steps");
+      core.setOutput("contains_trigger", "false");
+      // Still set gitea_token output even when skipping
+      core.setOutput("gitea_token", giteaToken);
+      // Also export as GITHUB_TOKEN for compatibility
+      core.setOutput("GITHUB_TOKEN", giteaToken);
+      return;
+    }
 
     // Step 3: Check write permissions (only for entity contexts)
     if (isEntityContext(context)) {
-      // Check if github_token was provided as input (not from app)
-      const githubTokenProvided = !!process.env.OVERRIDE_GITHUB_TOKEN;
+      // Check if gitea_token was provided as input (not from app)
+      const giteaTokenProvided = !!process.env.OVERRIDE_GITEA_TOKEN;
       const hasWritePermissions = await checkWritePermissions(
-        octokit.rest,
         context,
         context.inputs.allowedNonWriteUsers,
-        githubTokenProvided,
+        giteaTokenProvided,
       );
       if (!hasWritePermissions) {
         throw new Error(
@@ -58,23 +66,26 @@ async function run() {
 
     if (!containsTrigger) {
       console.log("No trigger found, skipping remaining steps");
-      // Still set github_token output even when skipping
-      core.setOutput("github_token", githubToken);
+      // Still set gitea_token output even when skipping
+      core.setOutput("gitea_token", giteaToken);
+      // Also export as GITHUB_TOKEN for compatibility
+      core.setOutput("GITHUB_TOKEN", giteaToken);
       return;
     }
 
     // Step 5: Use the new modular prepare function
     const result = await prepare({
       context,
-      octokit,
+      giteaToken,
       mode,
-      githubToken,
     });
 
     // MCP config is handled by individual modes (tag/agent) and included in their claude_args output
 
-    // Expose the GitHub token (Claude App token) as an output
-    core.setOutput("github_token", githubToken);
+    // Expose the Gitea token as an output
+    core.setOutput("gitea_token", giteaToken);
+    // Also export as GITHUB_TOKEN for compatibility with GitHub-based code
+    core.setOutput("GITHUB_TOKEN", giteaToken);
 
     // Step 6: Get system prompt from mode if available
     if (mode.getSystemPrompt) {

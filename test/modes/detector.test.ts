@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { detectMode } from "../../src/modes/detector";
-import type { GitHubContext } from "../../src/github/context";
+import type { GiteaContext } from "../../src/github/context";
 
 describe("detectMode with enhanced routing", () => {
   const baseContext = {
@@ -32,7 +32,7 @@ describe("detectMode with enhanced routing", () => {
 
   describe("PR Events with track_progress", () => {
     it("should use tag mode when track_progress is true for pull_request.opened", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "pull_request",
         eventAction: "opened",
@@ -46,7 +46,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should use tag mode when track_progress is true for pull_request.synchronize", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "pull_request",
         eventAction: "synchronize",
@@ -60,7 +60,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should use agent mode when track_progress is false for pull_request.opened", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "pull_request",
         eventAction: "opened",
@@ -74,7 +74,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should throw error when track_progress is used with unsupported PR action", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "pull_request",
         eventAction: "closed",
@@ -92,7 +92,7 @@ describe("detectMode with enhanced routing", () => {
 
   describe("Issue Events with track_progress", () => {
     it("should use tag mode when track_progress is true for issues.opened", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "issues",
         eventAction: "opened",
@@ -106,7 +106,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should use agent mode when track_progress is false for issues", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "issues",
         eventAction: "opened",
@@ -120,7 +120,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should use agent mode for issues with explicit prompt", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "issues",
         eventAction: "opened",
@@ -134,7 +134,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should use tag mode for issues with @claude mention and no prompt", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "issues",
         eventAction: "opened",
@@ -149,7 +149,7 @@ describe("detectMode with enhanced routing", () => {
 
   describe("Comment Events (unchanged behavior)", () => {
     it("should use tag mode for issue_comment with @claude mention", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "issue_comment",
         payload: {
@@ -164,7 +164,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should use agent mode for issue_comment with prompt provided", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "issue_comment",
         payload: {
@@ -179,12 +179,12 @@ describe("detectMode with enhanced routing", () => {
       expect(detectMode(context)).toBe("agent");
     });
 
-    it("should use tag mode for PR review comments with @claude mention", () => {
-      const context: GitHubContext = {
+    it("should use tag mode for PR comments with @claude mention", () => {
+      const context: GiteaContext = {
         ...baseContext,
-        eventName: "pull_request_review_comment",
+        eventName: "issue_comment",
         payload: {
-          pull_request: { number: 1, body: "Test" },
+          issue: { number: 1, body: "Test" },
           comment: { body: "@claude check this" },
         } as any,
         entityNumber: 1,
@@ -197,7 +197,7 @@ describe("detectMode with enhanced routing", () => {
 
   describe("Automation Events (should error with track_progress)", () => {
     it("should throw error when track_progress is used with workflow_dispatch", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "workflow_dispatch",
         payload: {} as any,
@@ -210,7 +210,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should use agent mode for workflow_dispatch without track_progress", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "workflow_dispatch",
         payload: {} as any,
@@ -223,7 +223,7 @@ describe("detectMode with enhanced routing", () => {
 
   describe("Custom prompt injection in tag mode", () => {
     it("should use tag mode for PR events when both track_progress and prompt are provided", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "pull_request",
         eventAction: "opened",
@@ -241,7 +241,7 @@ describe("detectMode with enhanced routing", () => {
     });
 
     it("should use tag mode for issue events when both track_progress and prompt are provided", () => {
-      const context: GitHubContext = {
+      const context: GiteaContext = {
         ...baseContext,
         eventName: "issues",
         eventAction: "opened",

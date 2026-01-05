@@ -1,4 +1,4 @@
-import { GITHUB_SERVER_URL } from "../api/config";
+import { GITEA_SERVER_URL } from "../api/config";
 
 export type ExecutionDetails = {
   total_cost_usd?: number;
@@ -148,7 +148,7 @@ export function updateCommentBody(input: CommentUpdateInput): string {
 
       // Extract branch name from link if not provided
       if (!finalBranchName) {
-        const branchNameMatch = branchLink.match(/tree\/([^"'\)]+)/);
+        const branchNameMatch = branchLink.match(/src\/branch\/([^"'\)]+)/);
         if (branchNameMatch) {
           finalBranchName = branchNameMatch[1];
         }
@@ -158,9 +158,10 @@ export function updateCommentBody(input: CommentUpdateInput): string {
     // If we don't have a URL yet but have a branch name, construct it
     if (!branchUrl && finalBranchName) {
       // Extract owner/repo from jobUrl
-      const repoMatch = jobUrl.match(/github\.com\/([^\/]+)\/([^\/]+)\//);
+      // Gitea URL format: https://gitea.com/owner/repo/...
+      const repoMatch = jobUrl.match(/gitea\.com\/([^\/]+)\/([^\/]+)\//);
       if (repoMatch) {
-        branchUrl = `${GITHUB_SERVER_URL}/${repoMatch[1]}/${repoMatch[2]}/tree/${finalBranchName}`;
+        branchUrl = `${GITEA_SERVER_URL}/${repoMatch[1]}/${repoMatch[2]}/src/branch/${finalBranchName}`;
       }
     }
 

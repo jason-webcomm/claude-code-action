@@ -1,35 +1,21 @@
 import fs from "fs/promises";
 import path from "path";
-import type { Octokits } from "../api/client";
-import { GITHUB_SERVER_URL } from "../api/config";
+import { GITEA_API_URL, GITEA_SERVER_URL } from "../api/config";
 
-const escapedUrl = GITHUB_SERVER_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapedUrl = GITEA_SERVER_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const IMAGE_REGEX = new RegExp(
-  `!\\[[^\\]]*\\]\\((${escapedUrl}\\/user-attachments\\/assets\\/[^)]+)\\)`,
+  `!\\[[^\\]]*\\]\\((${escapedUrl}\\/attachments\\/[^)]+)\\)`,
   "g",
 );
 
 const HTML_IMG_REGEX = new RegExp(
-  `<img[^>]+src=["']([^"']*${escapedUrl}\\/user-attachments\\/assets\\/[^"']+)["'][^>]*>`,
+  `<img[^>]+src=["']([^"']*${escapedUrl}\\/attachments\\/[^"']+)["'][^>]*>`,
   "gi",
 );
 
 type IssueComment = {
   type: "issue_comment";
   id: string;
-  body: string;
-};
-
-type ReviewComment = {
-  type: "review_comment";
-  id: string;
-  body: string;
-};
-
-type ReviewBody = {
-  type: "review_body";
-  id: string;
-  pullNumber: string;
   body: string;
 };
 
@@ -45,21 +31,15 @@ type PullRequestBody = {
   body: string;
 };
 
-export type CommentWithImages =
-  | IssueComment
-  | ReviewComment
-  | ReviewBody
-  | IssueBody
-  | PullRequestBody;
+export type CommentWithImages = IssueComment | IssueBody | PullRequestBody;
 
 export async function downloadCommentImages(
-  octokits: Octokits,
   owner: string,
   repo: string,
   comments: CommentWithImages[],
 ): Promise<Map<string, string>> {
   const urlToPathMap = new Map<string, string>();
-  const downloadsDir = "/tmp/github-images";
+  const downloadsDir = "/tmp/gitea-images";
 
   await fs.mkdir(downloadsDir, { recursive: true });
 
@@ -97,68 +77,65 @@ export async function downloadCommentImages(
     try {
       let bodyHtml: string | undefined;
 
-      // Get the HTML version based on comment type
+      // Get the HTML version based on comment type using Gitea API
       switch (comment.type) {
         case "issue_comment": {
-          const response = await octokits.rest.issues.getComment({
-            owner,
-            repo,
-            comment_id: parseInt(comment.id),
-            mediaType: {
-              format: "full+json",
+          const response = await fetch(
+            `${GITEA_API_URL}/repos/${owner}/${repo}/issues/comments/${comment.id}`,
+            {
+              headers: {
+                Accept: "application/json",
+                Authorization: `token ${process.env.GITEA_TOKEN}`,
+              },
             },
-          });
-          bodyHtml = response.data.body_html;
-          break;
-        }
-        case "review_comment": {
-          const response = await octokits.rest.pulls.getReviewComment({
-            owner,
-            repo,
-            comment_id: parseInt(comment.id),
-            mediaType: {
-              format: "full+json",
-            },
-          });
-          bodyHtml = response.data.body_html;
-          break;
-        }
-        case "review_body": {
-          const response = await octokits.rest.pulls.getReview({
-            owner,
-            repo,
-            pull_number: parseInt(comment.pullNumber),
-            review_id: parseInt(comment.id),
-            mediaType: {
-              format: "full+json",
-            },
-          });
-          bodyHtml = response.data.body_html;
+          );
+          if (!response.ok) {
+            throw new Error(
+              `Failed to fetch comment: ${response.status} - ${await response.text()}`,
+            );
+          }
+          const data = (await response.json()) as { body: string };
+          // Gitea may not provide HTML directly, so we'll use the markdown body
+          // If Gitea provides body_html in the future, use that instead
+          bodyHtml = data.body;
           break;
         }
         case "issue_body": {
-          const response = await octokits.rest.issues.get({
-            owner,
-            repo,
-            issue_number: parseInt(comment.issueNumber),
-            mediaType: {
-              format: "full+json",
+          const response = await fetch(
+            `${GITEA_API_URL}/repos/${owner}/${repo}/issues/${comment.issueNumber}`,
+            {
+              headers: {
+                Accept: "application/json",
+                Authorization: `token ${process.env.GITEA_TOKEN}`,
+              },
             },
-          });
-          bodyHtml = response.data.body_html;
+          );
+          if (!response.ok) {
+            throw new Error(
+              `Failed to fetch issue: ${response.status} - ${await response.text()}`,
+            );
+          }
+          const data = (await response.json()) as { body: string };
+          bodyHtml = data.body;
           break;
         }
         case "pr_body": {
-          const response = await octokits.rest.pulls.get({
-            owner,
-            repo,
-            pull_number: parseInt(comment.pullNumber),
-            mediaType: {
-              format: "full+json",
+          const response = await fetch(
+            `${GITEA_API_URL}/repos/${owner}/${repo}/pulls/${comment.pullNumber}`,
+            {
+              headers: {
+                Accept: "application/json",
+                Authorization: `token ${process.env.GITEA_TOKEN}`,
+              },
             },
-          });
-          // Type here seems to be wrong
-          bodyHtml = (response.data as any).body_html;
+          );
+          if (!response.ok) {
+            throw new Error(
+              `Failed to fetch PR: ${response.status} - ${await response.text()}`,
+            );
+          }
+          const data = (await response.json()) as { body: string };
+          bodyHtml = data.body;
           break;
         }
       }
@@ -173,33 +150,29 @@ export async function downloadCommentImages(
         continue;
       }
 
-      // Extract signed URLs from HTML
-      const signedUrlRegex =
-        /https:\/\/private-user-images\.githubusercontent\.com\/[^"]+\?jwt=[^"]+/g;
-      const signedUrls = bodyHtml.match(signedUrlRegex) || [];
-
+      // For Gitea, we'll try to download directly from the attachment URLs
+      // Gitea attachments are typically publicly accessible or require token auth
       // Download each image
-      for (let i = 0; i < Math.min(signedUrls.length, urls.length); i++) {
-        const signedUrl = signedUrls[i];
-        const originalUrl = urls[i];
-
-        if (!signedUrl || !originalUrl) {
-          continue;
-        }
+      for (let i = 0; i < urls.length; i++) {
+        const imageUrl = urls[i];
 
         // Check if we've already downloaded this URL
-        if (urlToPathMap.has(originalUrl)) {
+        if (urlToPathMap.has(imageUrl)) {
           continue;
         }
 
-        const fileExtension = getImageExtension(originalUrl);
+        const fileExtension = getImageExtension(imageUrl);
         const filename = `image-${Date.now()}-${i}${fileExtension}`;
         const localPath = path.join(downloadsDir, filename);
 
         try {
-          console.log(`Downloading ${originalUrl}...`);
+          console.log(`Downloading ${imageUrl}...`);
 
-          const imageResponse = await fetch(signedUrl);
+          const imageResponse = await fetch(imageUrl, {
+            headers: {
+              Authorization: `token ${process.env.GITEA_TOKEN}`,
+            },
+          });
           if (!imageResponse.ok) {
             throw new Error(
               `HTTP ${imageResponse.status}: ${imageResponse.statusText}`,
@@ -212,9 +185,9 @@ export async function downloadCommentImages(
           await fs.writeFile(localPath, buffer);
           console.log(`✓ Saved: ${localPath}`);
 
-          urlToPathMap.set(originalUrl, localPath);
+          urlToPathMap.set(imageUrl, localPath);
         } catch (error) {
-          console.error(`✗ Failed to download ${originalUrl}:`, error);
+          console.error(`✗ Failed to download ${imageUrl}:`, error);
         }
       }
     } catch (error) {

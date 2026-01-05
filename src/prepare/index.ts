@@ -5,7 +5,7 @@
 import type { PrepareOptions, PrepareResult } from "./types";
 
 export async function prepare(options: PrepareOptions): Promise<PrepareResult> {
-  const { mode, context, octokit, githubToken } = options;
+  const { mode, context, giteaToken } = options;
 
   console.log(
     `Preparing with mode: ${mode.name} for event: ${context.eventName}`,
@@ -14,7 +14,6 @@ export async function prepare(options: PrepareOptions): Promise<PrepareResult> {
   // Delegate to the mode's prepare method
   return mode.prepare({
     context,
-    octokit,
-    githubToken,
+    giteaToken,
   });
 }

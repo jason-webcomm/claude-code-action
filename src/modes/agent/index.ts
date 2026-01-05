@@ -1,4 +1,4 @@
-import * as core from "@actions/core";
+import * as core from "../../gitea-actions/core";
 import { mkdir, writeFile } from "fs/promises";
 import type { Mode, ModeOptions, ModeResult } from "../types";
 import type { PreparedContext } from "../../create-prompt/types";
@@ -8,24 +8,24 @@ import {
   configureGitAuth,
   setupSshSigning,
 } from "../../github/operations/git-config";
-import type { GitHubContext } from "../../github/context";
+import type { GiteaContext } from "../../github/context";
 import { isEntityContext } from "../../github/context";
 
 /**
- * Extract GitHub context as environment variables for agent mode
+ * Extract Gitea context as environment variables for agent mode
  */
-function extractGitHubContext(context: GitHubContext): Record<string, string> {
+function extractGiteaContext(context: GiteaContext): Record<string, string> {
   const envVars: Record<string, string> = {};
 
   // Basic repository info
-  envVars.GITHUB_REPOSITORY = context.repository.full_name;
-  envVars.GITHUB_TRIGGER_ACTOR = context.actor;
-  envVars.GITHUB_EVENT_NAME = context.eventName;
+  envVars.GITEA_REPOSITORY = context.repository.full_name;
+  envVars.GITEA_TRIGGER_ACTOR = context.actor;
+  envVars.GITEA_EVENT_NAME = context.eventName;
 
   // Entity-specific context (PR/issue numbers, branches, etc.)
   if (isEntityContext(context)) {
     if (context.isPR) {
-      envVars.GITHUB_PR_NUMBER = String(context.entityNumber);
+      envVars.GITEA_PR_NUMBER = String(context.entityNumber);
 
       // Extract branch info from payload if available
       if (
@@ -33,11 +33,11 @@ function extractGitHubContext(context: GitHubContext): Record<string, string> {
         "pull_request" in context.payload &&
         context.payload.pull_request
       ) {
-        envVars.GITHUB_BASE_REF = context.payload.pull_request.base?.ref || "";
-        envVars.GITHUB_HEAD_REF = context.payload.pull_request.head?.ref || "";
+        envVars.GITEA_BASE_REF = context.payload.pull_request.base?.ref || "";
+        envVars.GITEA_HEAD_REF = context.payload.pull_request.head?.ref || "";
       }
     } else {
-      envVars.GITHUB_ISSUE_NUMBER = String(context.entityNumber);
+      envVars.GITEA_ISSUE_NUMBER = String(context.entityNumber);
     }
   }
 
@@ -64,7 +64,7 @@ export const agentMode: Mode = {
     // Agent mode doesn't use comment tracking or branch management
     return {
       mode: "agent",
-      githubContext: context,
+      giteaContext: context,
     };
   },
 
@@ -80,7 +80,7 @@ export const agentMode: Mode = {
     return false;
   },
 
-  async prepare({ context, githubToken }: ModeOptions): Promise<ModeResult> {
+  async prepare({ context, giteaToken }: ModeOptions): Promise<ModeResult> {
     // Configure git authentication for agent mode (same as tag mode)
     // SSH signing takes precedence if provided
     const useSshSigning = !!context.inputs.sshSigningKey;
@@ -97,7 +97,7 @@ export const agentMode: Mode = {
         id: parseInt(context.inputs.botId),
       };
       try {
-        await configureGitAuth(githubToken, context, user);
+        await configureGitAuth(giteaToken, context, user);
       } catch (error) {
         console.error("Failed to configure git authentication:", error);
         // Continue anyway - git operations may still work with default config
@@ -111,7 +111,7 @@ export const agentMode: Mode = {
 
       try {
         // Use the shared git configuration function
-        await configureGitAuth(githubToken, context, user);
+        await configureGitAuth(giteaToken, context, user);
       } catch (error) {
         console.error("Failed to configure git authentication:", error);
         // Continue anyway - git operations may still work with default config
@@ -142,16 +142,16 @@ export const agentMode: Mode = {
     const baseBranch =
       process.env.BASE_BRANCH || context.inputs.baseBranch || "main";
 
-    // Detect current branch from GitHub environment
+    // Detect current branch from Gitea environment
     const currentBranch =
       claudeBranch ||
-      process.env.GITHUB_HEAD_REF ||
-      process.env.GITHUB_REF_NAME ||
+      process.env.GITEA_HEAD_REF ||
+      process.env.GITEA_REF_NAME ||
       "main";
 
-    // Get our GitHub MCP servers config
+    // Get our Gitea MCP servers config
     const ourMcpConfig = await prepareMcpConfig({
-      githubToken,
+      giteaToken,
       owner: context.repository.owner,
       repo: context.repository.repo,
       branch: currentBranch,
@@ -165,11 +165,15 @@ export const agentMode: Mode = {
     // Build final claude_args with multiple --mcp-config flags
     let claudeArgs = "";
 
-    // Add our GitHub servers config if we have any
+    // Add our Gitea servers config if we have any
     const ourConfig = JSON.parse(ourMcpConfig);
     if (ourConfig.mcpServers && Object.keys(ourConfig.mcpServers).length > 0) {
-      const escapedOurConfig = ourMcpConfig.replace(/'/g, "'\\''");
-      claudeArgs = `--mcp-config '${escapedOurConfig}'`;
+      // Write MCP config to working directory for Gitea Actions compatibility
+      // Using absolute path to ensure SDK can find the file regardless of working directory
+      const mcpConfigPath = `${process.cwd()}/claude-mcp-config.json`;
+      await writeFile(mcpConfigPath, ourMcpConfig, "utf-8");
+      console.log(`MCP config written to: ${mcpConfigPath}`);
+      claudeArgs = `--mcp-config ${mcpConfigPath}`;
     }
 
     // Append user's claude_args (which may have more --mcp-config flags)
@@ -189,9 +193,9 @@ export const agentMode: Mode = {
   },
 
   generatePrompt(context: PreparedContext): string {
-    // Inject GitHub context as environment variables
-    if (context.githubContext) {
-      const envVars = extractGitHubContext(context.githubContext);
+    // Inject Gitea context as environment variables
+    if (context.giteaContext) {
+      const envVars = extractGiteaContext(context.giteaContext);
       for (const [key, value] of Object.entries(envVars)) {
         core.exportVariable(key, value);
       }

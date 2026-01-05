@@ -1,12 +1,11 @@
-import * as core from "@actions/core";
-import { GITHUB_API_URL, GITHUB_SERVER_URL } from "../github/api/config";
-import type { GitHubContext } from "../github/context";
+import * as core from "../gitea-actions/core";
+import { GITEA_API_URL, GITEA_SERVER_URL } from "../github/api/config";
+import type { GiteaContext } from "../github/context";
 import { isEntityContext } from "../github/context";
-import { Octokit } from "@octokit/rest";
 import type { AutoDetectedMode } from "../modes/detector";
 
 type PrepareConfigParams = {
-  githubToken: string;
+  giteaToken: string;
   owner: string;
   repo: string;
   branch: string;
@@ -14,7 +13,7 @@ type PrepareConfigParams = {
   claudeCommentId?: string;
   allowedTools: string[];
   mode: AutoDetectedMode;
-  context: GitHubContext;
+  context: GiteaContext;
 };
 
 async function checkActionsReadPermission(
@@ -23,27 +22,31 @@ async function checkActionsReadPermission(
   repo: string,
 ): Promise<boolean> {
   try {
-    const client = new Octokit({ auth: token, baseUrl: GITHUB_API_URL });
-
     // Try to list workflow runs - this requires actions:read
-    // We use per_page=1 to minimize the response size
-    await client.actions.listWorkflowRunsForRepo({
-      owner,
-      repo,
-      per_page: 1,
+    // We use page=1 with limit=1 to minimize the response size
+    // Gitea Actions API endpoint (to be verified in Task 41)
+    // GET /repos/{owner}/{repo}/actions/runs?limit=1
+    const runsUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/actions/runs?limit=1`;
+    const response = await fetch(runsUrl, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `token ${token}`,
+      },
     });
 
-    return true;
-  } catch (error: any) {
+    if (response.ok) {
+      return true;
+    }
+
     // Check if it's a permission error
-    if (
-      error.status === 403 &&
-      error.message?.includes("Resource not accessible")
-    ) {
+    if (response.status === 403) {
       return false;
     }
 
     // For other errors (network issues, etc), log but don't fail
+    core.debug(`Failed to check actions permission: ${response.status}`);
+    return false;
+  } catch (error: any) {
     core.debug(`Failed to check actions permission: ${error.message}`);
     return false;
   }
@@ -53,7 +56,7 @@ export async function prepareMcpConfig(
   params: PrepareConfigParams,
 ): Promise<string> {
   const {
-    githubToken,
+    giteaToken,
     owner,
     repo,
     branch,
@@ -69,20 +72,20 @@ export async function prepareMcpConfig(
     // Detect if we're in agent mode (explicit prompt provided)
     const isAgentMode = mode === "agent";
 
-    const hasGitHubCommentTools = allowedToolsList.some((tool) =>
-      tool.startsWith("mcp__github_comment__"),
+    const hasGiteaCommentTools = allowedToolsList.some((tool) =>
+      tool.startsWith("mcp__gitea_comment__"),
     );
 
-    const hasGitHubMcpTools = allowedToolsList.some((tool) =>
-      tool.startsWith("mcp__github__"),
+    const hasGiteaMcpTools = allowedToolsList.some((tool) =>
+      tool.startsWith("mcp__gitea__"),
     );
 
     const hasInlineCommentTools = allowedToolsList.some((tool) =>
-      tool.startsWith("mcp__github_inline_comment__"),
+      tool.startsWith("mcp__gitea_inline_comment__"),
     );
 
-    const hasGitHubCITools = allowedToolsList.some((tool) =>
-      tool.startsWith("mcp__github_ci__"),
+    const hasGiteaCITools = allowedToolsList.some((tool) =>
+      tool.startsWith("mcp__gitea_actions__"),
     );
 
     const baseMcpConfig: { mcpServers: Record<string, unknown> } = {
@@ -92,44 +95,44 @@ export async function prepareMcpConfig(
     // Include comment server:
     // - Always in tag mode (for updating Claude comments)
     // - Only with explicit tools in agent mode
-    const shouldIncludeCommentServer = !isAgentMode || hasGitHubCommentTools;
+    const shouldIncludeCommentServer = !isAgentMode || hasGiteaCommentTools;
 
     if (shouldIncludeCommentServer) {
-      baseMcpConfig.mcpServers.github_comment = {
+      baseMcpConfig.mcpServers.gitea_comment = {
         command: "bun",
         args: [
           "run",
-          `${process.env.GITHUB_ACTION_PATH}/src/mcp/github-comment-server.ts`,
+          `${process.env.GITHUB_ACTION_PATH}/src/mcp/gitea-comment-server.ts`,
         ],
         env: {
-          GITHUB_TOKEN: githubToken,
+          GITEA_TOKEN: giteaToken,
           REPO_OWNER: owner,
           REPO_NAME: repo,
           ...(claudeCommentId && { CLAUDE_COMMENT_ID: claudeCommentId }),
-          GITHUB_EVENT_NAME: process.env.GITHUB_EVENT_NAME || "",
-          GITHUB_API_URL: GITHUB_API_URL,
+          GITEA_EVENT_NAME: process.env.GITEA_EVENT_NAME || "",
+          GITEA_API_URL: GITEA_API_URL,
         },
       };
     }
 
     // Include file ops server when commit signing is enabled
     if (context.inputs.useCommitSigning) {
-      baseMcpConfig.mcpServers.github_file_ops = {
+      baseMcpConfig.mcpServers.gitea_file_ops = {
         command: "bun",
         args: [
           "run",
-          `${process.env.GITHUB_ACTION_PATH}/src/mcp/github-file-ops-server.ts`,
+          `${process.env.GITHUB_ACTION_PATH}/src/mcp/gitea-file-ops-server.ts`,
         ],
         env: {
-          GITHUB_TOKEN: githubToken,
+          GITEA_TOKEN: giteaToken,
           REPO_OWNER: owner,
           REPO_NAME: repo,
           BRANCH_NAME: branch,
           BASE_BRANCH: baseBranch,
-          REPO_DIR: process.env.GITHUB_WORKSPACE || process.cwd(),
-          GITHUB_EVENT_NAME: process.env.GITHUB_EVENT_NAME || "",
+          REPO_DIR: process.env.GITEA_WORKSPACE || process.cwd(),
+          GITEA_EVENT_NAME: process.env.GITEA_EVENT_NAME || "",
           IS_PR: process.env.IS_PR || "false",
-          GITHUB_API_URL: GITHUB_API_URL,
+          GITEA_API_URL: GITEA_API_URL,
         },
       };
     }
@@ -138,20 +141,20 @@ export async function prepareMcpConfig(
     if (
       isEntityContext(context) &&
       context.isPR &&
-      (hasGitHubMcpTools || hasInlineCommentTools)
+      (hasGiteaMcpTools || hasInlineCommentTools)
     ) {
-      baseMcpConfig.mcpServers.github_inline_comment = {
+      baseMcpConfig.mcpServers.gitea_inline_comment = {
         command: "bun",
         args: [
           "run",
-          `${process.env.GITHUB_ACTION_PATH}/src/mcp/github-inline-comment-server.ts`,
+          `${process.env.GITHUB_ACTION_PATH}/src/mcp/gitea-inline-comment-server.ts`,
         ],
         env: {
-          GITHUB_TOKEN: githubToken,
+          GITEA_TOKEN: giteaToken,
           REPO_OWNER: owner,
           REPO_NAME: repo,
           PR_NUMBER: context.entityNumber?.toString() || "",
-          GITHUB_API_URL: GITHUB_API_URL,
+          GITEA_API_URL: GITEA_API_URL,
         },
       };
     }
@@ -161,7 +164,7 @@ export async function prepareMcpConfig(
     // - In agent mode: same conditions PLUS explicit CI tools in allowedTools
     const hasWorkflowToken = !!process.env.DEFAULT_WORKFLOW_TOKEN;
     const shouldIncludeCIServer =
-      (!isAgentMode || hasGitHubCITools) &&
+      (!isAgentMode || hasGiteaCITools) &&
       isEntityContext(context) &&
       context.isPR &&
       hasWorkflowToken;
@@ -176,20 +179,19 @@ export async function prepareMcpConfig(
 
       if (!actuallyHasPermission) {
         core.warning(
-          "The github_ci MCP server requires 'actions: read' permission. " +
-            "Please ensure your GitHub token has this permission. " +
-            "See: https://docs.github.com/en/actions/security-guides/automatic-token-authentication#permissions-for-the-github_token",
+          "The gitea_actions MCP server requires 'actions: read' permission. " +
+            "Please ensure your Gitea token has this permission.",
         );
       }
-      baseMcpConfig.mcpServers.github_ci = {
+      baseMcpConfig.mcpServers.gitea_actions = {
         command: "bun",
         args: [
           "run",
-          `${process.env.GITHUB_ACTION_PATH}/src/mcp/github-actions-server.ts`,
+          `${process.env.GITHUB_ACTION_PATH}/src/mcp/gitea-actions-server.ts`,
         ],
         env: {
-          // Use workflow github token, not app token
-          GITHUB_TOKEN: process.env.DEFAULT_WORKFLOW_TOKEN,
+          // Use workflow gitea token, not app token
+          GITEA_TOKEN: process.env.DEFAULT_WORKFLOW_TOKEN,
           REPO_OWNER: owner,
           REPO_NAME: repo,
           PR_NUMBER: context.entityNumber?.toString() || "",
@@ -198,27 +200,30 @@ export async function prepareMcpConfig(
       };
     }
 
-    if (hasGitHubMcpTools) {
-      baseMcpConfig.mcpServers.github = {
+    if (hasGiteaMcpTools) {
+      // Use official Gitea MCP server from https://gitea.com/gitea/gitea-mcp
+      // Task 40: Verified - Official Gitea MCP server is available
+      // Provides full Gitea API access via MCP protocol
+      baseMcpConfig.mcpServers.gitea = {
         command: "docker",
         args: [
           "run",
           "-i",
           "--rm",
           "-e",
-          "GITHUB_PERSONAL_ACCESS_TOKEN",
+          "GITEA_PERSONAL_ACCESS_TOKEN",
           "-e",
-          "GITHUB_HOST",
-          "ghcr.io/github/github-mcp-server:sha-23fa0dd", // https://github.com/github/github-mcp-server/releases/tag/v0.17.1
+          "GITEA_HOST",
+          "gitea/gitea-mcp-server:latest",
         ],
         env: {
-          GITHUB_PERSONAL_ACCESS_TOKEN: githubToken,
-          GITHUB_HOST: GITHUB_SERVER_URL,
+          GITEA_PERSONAL_ACCESS_TOKEN: giteaToken,
+          GITEA_HOST: GITEA_SERVER_URL,
         },
       };
     }
 
-    // Return only our GitHub servers config
+    // Return only our Gitea servers config
     // User's config will be passed as separate --mcp-config flags
     return JSON.stringify(baseMcpConfig, null, 2);
   } catch (error) {

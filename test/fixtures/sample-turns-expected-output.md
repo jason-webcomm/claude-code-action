@@ -53,7 +53,7 @@ I can see the debug print statement that needs to be removed. Let me fix this by
 
 Perfect! I've successfully removed the debug print statement from the function. Let me now create a pull request comment to document this change.
 
-### 🔧 `mcp__github__add_pull_request_review_comment`
+### 🔧 `mcp__gitea__add_pull_request_review_comment`
 
 **Parameters:**
 ```json

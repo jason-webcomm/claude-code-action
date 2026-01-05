@@ -8,21 +8,60 @@
 import { appendFileSync } from "fs";
 import { createJobRunLink, createCommentBody } from "./common";
 import {
-  isPullRequestReviewCommentEvent,
+  isIssueCommentEvent,
   isPullRequestEvent,
-  type ParsedGitHubContext,
+  type GiteaContext,
 } from "../../context";
-import type { Octokit } from "@octokit/rest";
+import { GITEA_API_URL } from "../../api/config";
 
-const CLAUDE_APP_BOT_ID = 209825114;
+/**
+ * Fetch the correct run number from Gitea API
+ * Gitea Actions' github.run_id provides an internal tracking ID, not the UI run number
+ */
+async function getGiteaRunNumber(
+  owner: string,
+  repo: string,
+  giteaToken: string,
+): Promise<string> {
+  try {
+    // Query the most recent runs to find the current one
+    // GET /repos/{owner}/{repo}/actions/runs
+    const runsUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/actions/runs`;
+    const response = await fetch(runsUrl, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `token ${giteaToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      return "";
+    }
+
+    const data = await response.json();
+
+    // Get the most recent run (first in the list)
+    if (data.workflow_runs && data.workflow_runs.length > 0) {
+      const latestRun = data.workflow_runs[0];
+      // Return the run_number which is what appears in the UI URL
+      return latestRun.run_number.toString();
+    }
+
+    return "";
+  } catch (error) {
+    return "";
+  }
+}
 
 export async function createInitialComment(
-  octokit: Octokit,
-  context: ParsedGitHubContext,
+  giteaToken: string,
+  context: GiteaContext,
 ) {
   const { owner, repo } = context.repository;
 
-  const jobRunLink = createJobRunLink(owner, repo, context.runId);
+  // Fetch the correct run number from Gitea API
+  const runNumber = await getGiteaRunNumber(owner, repo, giteaToken);
+  const jobRunLink = createJobRunLink(owner, repo, runNumber || context.runId);
   const initialBody = createCommentBody(jobRunLink);
 
   try {
@@ -33,76 +72,163 @@ export async function createInitialComment(
       context.isPR &&
       isPullRequestEvent(context)
     ) {
-      const comments = await octokit.rest.issues.listComments({
-        owner,
-        repo,
-        issue_number: context.entityNumber,
+      // For sticky comments in PRs, try to find an existing Claude comment
+      // GET /repos/{owner}/{repo}/issues/{index}/comments
+      const commentsUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/issues/comments`;
+      const commentsResponse = await fetch(commentsUrl, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `token ${giteaToken}`,
+        },
       });
-      const existingComment = comments.data.find((comment) => {
-        const idMatch = comment.user?.id === CLAUDE_APP_BOT_ID;
-        const botNameMatch =
-          comment.user?.type === "Bot" &&
-          comment.user?.login.toLowerCase().includes("claude");
-        const bodyMatch = comment.body === initialBody;
 
-        return idMatch || botNameMatch || bodyMatch;
-      });
-      if (existingComment) {
-        response = await octokit.rest.issues.updateComment({
-          owner,
-          repo,
-          comment_id: existingComment.id,
-          body: initialBody,
-        });
-      } else {
-        // Create new comment if no existing one found
-        response = await octokit.rest.issues.createComment({
-          owner,
-          repo,
-          issue_number: context.entityNumber,
-          body: initialBody,
-        });
+      if (!commentsResponse.ok) {
+        throw new Error(
+          `Failed to list comments: ${commentsResponse.status} - ${await commentsResponse.text()}`,
+        );
       }
-    } else if (isPullRequestReviewCommentEvent(context)) {
-      // Only use createReplyForReviewComment if it's a PR review comment AND we have a comment_id
-      response = await octokit.rest.pulls.createReplyForReviewComment({
-        owner,
-        repo,
-        pull_number: context.entityNumber,
-        comment_id: context.payload.comment.id,
-        body: initialBody,
+
+      const comments = (await commentsResponse.json()) as Array<{
+        id: number;
+        user: { login: string; full_name?: string };
+        body: string;
+      }>;
+
+      // Look for existing Claude comment (matching by body or user)
+      const existingComment = comments.find((comment) => {
+        const bodyMatch = comment.body === initialBody;
+        const botNameMatch =
+          comment.user.login.toLowerCase().includes("claude") ||
+          comment.user.full_name?.toLowerCase().includes("claude");
+
+        return bodyMatch || botNameMatch;
       });
+
+      if (existingComment) {
+        // Update existing comment
+        // PATCH /repos/{owner}/{repo}/issues/comments/{id}
+        const updateUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/issues/comments/${existingComment.id}`;
+        response = await fetch(updateUrl, {
+          method: "PATCH",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `token ${giteaToken}`,
+          },
+          body: JSON.stringify({
+            body: initialBody,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to update comment: ${response.status} - ${await response.text()}`,
+          );
+        }
+      } else {
+        // Create new comment
+        // POST /repos/{owner}/{repo}/issues/{index}/comments
+        const createUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/issues/${context.entityNumber}/comments`;
+        response = await fetch(createUrl, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `token ${giteaToken}`,
+          },
+          body: JSON.stringify({
+            body: initialBody,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to create comment: ${response.status} - ${await response.text()}`,
+          );
+        }
+      }
+    } else if (isIssueCommentEvent(context) && context.payload.comment?.id) {
+      // For issue comment events, reply to the original comment
+      // POST /repos/{owner}/{repo}/issues/comments/{id}
+      const replyUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/issues/${context.entityNumber}/comments`;
+      response = await fetch(replyUrl, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `token ${giteaToken}`,
+        },
+        body: JSON.stringify({
+          body: initialBody,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to create reply comment: ${response.status} - ${await response.text()}`,
+        );
+      }
     } else {
-      // For all other cases (issues, issue comments, or missing comment_id)
-      response = await octokit.rest.issues.createComment({
-        owner,
-        repo,
-        issue_number: context.entityNumber,
-        body: initialBody,
+      // For all other cases (issues, PRs), create a regular issue/PR comment
+      // POST /repos/{owner}/{repo}/issues/{index}/comments
+      const createUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/issues/${context.entityNumber}/comments`;
+      response = await fetch(createUrl, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `token ${giteaToken}`,
+        },
+        body: JSON.stringify({
+          body: initialBody,
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to create comment: ${response.status} - ${await response.text()}`,
+        );
+      }
     }
 
-    // Output the comment ID for downstream steps using GITHUB_OUTPUT
-    const githubOutput = process.env.GITHUB_OUTPUT!;
-    appendFileSync(githubOutput, `claude_comment_id=${response.data.id}\n`);
-    console.log(`✅ Created initial comment with ID: ${response.data.id}`);
-    return response.data;
+    const data = (await response.json()) as { id: number };
+
+    // Output the comment ID for downstream steps using GITEA_OUTPUT
+    const giteaOutput = process.env.GITEA_OUTPUT || process.env.GITHUB_OUTPUT!;
+    appendFileSync(giteaOutput, `claude_comment_id=${data.id}\n`);
+    console.log(`✅ Created initial comment with ID: ${data.id}`);
+    return data;
   } catch (error) {
     console.error("Error in initial comment:", error);
 
     // Always fall back to regular issue comment if anything fails
     try {
-      const response = await octokit.rest.issues.createComment({
-        owner,
-        repo,
-        issue_number: context.entityNumber,
-        body: initialBody,
+      const createUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/issues/${context.entityNumber}/comments`;
+      const response = await fetch(createUrl, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `token ${giteaToken}`,
+        },
+        body: JSON.stringify({
+          body: initialBody,
+        }),
       });
 
-      const githubOutput = process.env.GITHUB_OUTPUT!;
-      appendFileSync(githubOutput, `claude_comment_id=${response.data.id}\n`);
-      console.log(`✅ Created fallback comment with ID: ${response.data.id}`);
-      return response.data;
+      if (!response.ok) {
+        throw new Error(
+          `Failed to create fallback comment: ${response.status} - ${await response.text()}`,
+        );
+      }
+
+      const data = (await response.json()) as { id: number };
+
+      const giteaOutput =
+        process.env.GITEA_OUTPUT || process.env.GITHUB_OUTPUT!;
+      appendFileSync(giteaOutput, `claude_comment_id=${data.id}\n`);
+      console.log(`✅ Created fallback comment with ID: ${data.id}`);
+      return data;
     } catch (fallbackError) {
       console.error("Error creating fallback comment:", fallbackError);
       throw fallbackError;

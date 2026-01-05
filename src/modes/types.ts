@@ -1,13 +1,12 @@
-import type { GitHubContext } from "../github/context";
+import type { GiteaContext } from "../github/context";
 import type { PreparedContext } from "../create-prompt/types";
 import type { FetchDataResult } from "../github/data/fetcher";
-import type { Octokits } from "../github/api/client";
 
 export type ModeName = "tag" | "agent";
 
 export type ModeContext = {
   mode: ModeName;
-  githubContext: GitHubContext;
+  giteaContext: GiteaContext;
   commentId?: number;
   baseBranch?: string;
   claudeBranch?: string;
@@ -33,14 +32,14 @@ export type Mode = {
   description: string;
 
   /**
-   * Determines if this mode should trigger based on the GitHub context
+   * Determines if this mode should trigger based on the Gitea context
    */
-  shouldTrigger(context: GitHubContext): boolean;
+  shouldTrigger(context: GiteaContext): boolean;
 
   /**
    * Prepares the mode context with any additional data needed for prompt generation
    */
-  prepareContext(context: GitHubContext, data?: ModeData): ModeContext;
+  prepareContext(context: GiteaContext, data?: ModeData): ModeContext;
 
   /**
    * Returns the list of tools that should be allowed for this mode
@@ -84,9 +83,8 @@ export type Mode = {
 
 // Define types for mode prepare method
 export type ModeOptions = {
-  context: GitHubContext;
-  octokit: Octokits;
-  githubToken: string;
+  context: GiteaContext;
+  giteaToken: string;
 };
 
 export type ModeResult = {

@@ -1,11 +1,11 @@
-import { Octokit } from "@octokit/rest";
+import { GITEA_API_URL } from "../../api/config";
 
 export type UpdateClaudeCommentParams = {
   owner: string;
   repo: string;
   commentId: number;
   body: string;
-  isPullRequestReviewComment: boolean;
+  isPullRequestComment: boolean;
 };
 
 export type UpdateClaudeCommentResult = {
@@ -15,56 +15,52 @@ export type UpdateClaudeCommentResult = {
 };
 
 /**
- * Updates a Claude comment on GitHub (either an issue/PR comment or a PR review comment)
+ * Updates a Claude comment on Gitea (either an issue/PR comment or a PR review comment)
  *
- * @param octokit - Authenticated Octokit instance
+ * Gitea uses the same API endpoint for both issue and PR comments.
+ * PR review comments are a separate concept in GitHub but Gitea handles them differently.
+ *
  * @param params - Parameters for updating the comment
  * @returns The updated comment details
  * @throws Error if the update fails
  */
 export async function updateClaudeComment(
-  octokit: Octokit,
   params: UpdateClaudeCommentParams,
 ): Promise<UpdateClaudeCommentResult> {
-  const { owner, repo, commentId, body, isPullRequestReviewComment } = params;
+  const { owner, repo, commentId, body, isPullRequestComment } = params;
 
-  let response;
+  // Gitea uses the same endpoint for both issue and PR comments
+  // POST /repos/{owner}/{repo}/issues/comments/{id} for updates
+  const commentUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/issues/comments/${commentId}`;
 
-  try {
-    if (isPullRequestReviewComment) {
-      // Try PR review comment API first
-      response = await octokit.rest.pulls.updateReviewComment({
-        owner,
-        repo,
-        comment_id: commentId,
-        body,
-      });
-    } else {
-      // Use issue comment API (works for both issues and PR general comments)
-      response = await octokit.rest.issues.updateComment({
-        owner,
-        repo,
-        comment_id: commentId,
-        body,
-      });
-    }
-  } catch (error: any) {
-    // If PR review comment update fails with 404, fall back to issue comment API
-    if (isPullRequestReviewComment && error.status === 404) {
-      response = await octokit.rest.issues.updateComment({
-        owner,
-        repo,
-        comment_id: commentId,
-        body,
-      });
-    } else {
-      throw error;
-    }
+  const response = await fetch(commentUrl, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `token ${process.env.GITEA_TOKEN}`,
+    },
+    body: JSON.stringify({
+      body,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to update comment: ${response.status} - ${errorText}`,
+    );
   }
 
+  const data = (await response.json()) as {
+    id: number;
+    html_url: string;
+    updated_at: string;
+  };
+
   return {
-    id: response.data.id,
-    html_url: response.data.html_url,
-    updated_at: response.data.updated_at,
+    id: data.id,
+    html_url: data.html_url,
+    updated_at: data.updated_at,
   };
 }

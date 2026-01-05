@@ -7,14 +7,34 @@ import {
   spyOn,
   mock,
 } from "bun:test";
+
+// Mock gitea-actions/core
+mock.module("../src/gitea-actions/core", () => ({
+  getInput: () => "",
+  setOutput: () => {},
+  exportVariable: () => {},
+  setSecret: () => {},
+  addPath: () => {},
+  getBooleanInput: () => false,
+  getMultilineInput: () => [],
+  getNumberInput: () => 0,
+  debug: () => {},
+  info: () => {},
+  warning: () => {},
+  error: () => {},
+  startGroup: () => {},
+  endGroup: () => {},
+  group: () => {},
+}));
+
 import { agentMode } from "../../src/modes/agent";
-import type { GitHubContext } from "../../src/github/context";
+import type { GiteaContext } from "../../src/github/context";
 import { createMockContext, createMockAutomationContext } from "../mockContext";
-import * as core from "@actions/core";
+import * as core from "../../src/gitea-actions/core";
 import * as gitConfig from "../../src/github/operations/git-config";
 
 describe("Agent Mode", () => {
-  let mockContext: GitHubContext;
+  let mockContext: GiteaContext;
   let exportVariableSpy: any;
   let setOutputSpy: any;
   let configureGitAuthSpy: any;
@@ -59,9 +79,9 @@ describe("Agent Mode", () => {
     const context = agentMode.prepareContext(mockContext);
 
     expect(context.mode).toBe("agent");
-    expect(context.githubContext).toBe(mockContext);
+    expect(context.giteaContext).toBe(mockContext);
     // Agent mode doesn't use comment tracking or branch management
-    expect(Object.keys(context)).toEqual(["mode", "githubContext"]);
+    expect(Object.keys(context)).toEqual(["mode", "giteaContext"]);
   });
 
   test("agent mode only triggers when prompt is provided", () => {
@@ -132,34 +152,17 @@ describe("Agent Mode", () => {
     });
 
     // Save original env vars and set test values
-    const originalHeadRef = process.env.GITHUB_HEAD_REF;
-    const originalRefName = process.env.GITHUB_REF_NAME;
-    delete process.env.GITHUB_HEAD_REF;
-    delete process.env.GITHUB_REF_NAME;
+    const originalHeadRef = process.env.GITEA_HEAD_REF;
+    const originalRefName = process.env.GITEA_REF_NAME;
+    delete process.env.GITEA_HEAD_REF;
+    delete process.env.GITEA_REF_NAME;
 
     // Set CLAUDE_ARGS environment variable
     process.env.CLAUDE_ARGS = "--model claude-sonnet-4 --max-turns 10";
 
-    const mockOctokit = {
-      rest: {
-        users: {
-          getAuthenticated: mock(() =>
-            Promise.resolve({
-              data: { login: "test-user", id: 12345 },
-            }),
-          ),
-          getByUsername: mock(() =>
-            Promise.resolve({
-              data: { login: "test-user", id: 12345 },
-            }),
-          ),
-        },
-      },
-    } as any;
     const result = await agentMode.prepare({
       context: contextWithCustomArgs,
-      octokit: mockOctokit,
-      githubToken: "test-token",
+      giteaToken: "test-token",
     });
 
     // Verify claude_args includes user args (no MCP config in agent mode without allowed tools)
@@ -182,9 +185,9 @@ describe("Agent Mode", () => {
     // Clean up
     delete process.env.CLAUDE_ARGS;
     if (originalHeadRef !== undefined)
-      process.env.GITHUB_HEAD_REF = originalHeadRef;
+      process.env.GITEA_HEAD_REF = originalHeadRef;
     if (originalRefName !== undefined)
-      process.env.GITHUB_REF_NAME = originalRefName;
+      process.env.GITEA_REF_NAME = originalRefName;
   });
 
   test("prepare method creates prompt file with correct content", async () => {
@@ -194,26 +197,9 @@ describe("Agent Mode", () => {
     // In v1-dev, we only have the unified prompt field
     contextWithPrompts.inputs.prompt = "Custom prompt content";
 
-    const mockOctokit = {
-      rest: {
-        users: {
-          getAuthenticated: mock(() =>
-            Promise.resolve({
-              data: { login: "test-user", id: 12345 },
-            }),
-          ),
-          getByUsername: mock(() =>
-            Promise.resolve({
-              data: { login: "test-user", id: 12345 },
-            }),
-          ),
-        },
-      },
-    } as any;
     await agentMode.prepare({
       context: contextWithPrompts,
-      octokit: mockOctokit,
-      githubToken: "test-token",
+      giteaToken: "test-token",
     });
 
     // Note: We can't easily test file creation in this unit test,

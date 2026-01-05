@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { formatBody, formatComments } from "../src/github/data/formatter";
-import type { GitHubComment } from "../src/github/types";
+import type { GiteaComment } from "../src/github/types";
 
 describe("Sanitization Integration", () => {
   it("should sanitize complete issue/PR body with various hidden content patterns", () => {
@@ -66,7 +66,7 @@ Direction override test: ‮reversed‬ text should be normalized.`;
   });
 
   it("should sanitize GitHub comments preserving discussion flow", () => {
-    const comments: GitHubComment[] = [
+    const comments: GiteaComment[] = [
       {
         id: "1",
         databaseId: "100001",
@@ -81,8 +81,8 @@ Direction override test: ‮reversed‬ text should be normalized.`;
 </div>
 
 Note: Implementation​should​follow​best​practices.`,
-        author: { login: "reviewer1" },
-        createdAt: "2023-01-01T10:00:00Z",
+        user: { login: "reviewer1" },
+        created_at: "2023-01-01T10:00:00Z",
       },
       {
         id: "2",
@@ -96,8 +96,8 @@ I've updated the proposal based on your suggestions.
 &#84;&#101;&#115;&#116; &#110;&#111;&#116;&#101;: All systems checked.
 
 <span title="status update" data-status="approved">Ready for implementation</span>`,
-        author: { login: "author1" },
-        createdAt: "2023-01-01T12:00:00Z",
+        user: { login: "author1" },
+        created_at: "2023-01-01T12:00:00Z",
       },
     ];
 

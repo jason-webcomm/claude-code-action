@@ -1,17 +1,21 @@
-import type { GitHubContext } from "../github/context";
+import type { GiteaContext } from "../github/context";
 import {
   isEntityContext,
   isIssueCommentEvent,
-  isPullRequestReviewCommentEvent,
   isPullRequestEvent,
   isIssuesEvent,
-  isPullRequestReviewEvent,
 } from "../github/context";
 import { checkContainsTrigger } from "../github/validation/trigger";
 
 export type AutoDetectedMode = "tag" | "agent";
 
-export function detectMode(context: GitHubContext): AutoDetectedMode {
+export function detectMode(
+  context: GiteaContext,
+): AutoDetectedMode | undefined {
+  console.log(
+    `detectMode: eventName=${context.eventName}, entityNumber=${context.entityNumber}, isPR=${context.isPR}`,
+  );
+
   // Validate track_progress usage
   if (context.inputs.trackProgress) {
     validateTrackProgressEvent(context);
@@ -22,27 +26,30 @@ export function detectMode(context: GitHubContext): AutoDetectedMode {
     if (
       isPullRequestEvent(context) ||
       isIssuesEvent(context) ||
-      isIssueCommentEvent(context) ||
-      isPullRequestReviewCommentEvent(context) ||
-      isPullRequestReviewEvent(context)
+      isIssueCommentEvent(context)
     ) {
       return "tag";
     }
   }
 
   // Comment events (current behavior - unchanged)
+  console.log(
+    `isEntityContext=${isEntityContext(context)}, isIssueCommentEvent=${isIssueCommentEvent(context)}`,
+  );
   if (isEntityContext(context)) {
-    if (
-      isIssueCommentEvent(context) ||
-      isPullRequestReviewCommentEvent(context) ||
-      isPullRequestReviewEvent(context)
-    ) {
+    if (isIssueCommentEvent(context)) {
+      console.log(`Processing issue comment event`);
+      console.log(`Prompt input: "${context.inputs.prompt}"`);
+      console.log(`Trigger phrase: "${context.inputs.triggerPhrase}"`);
       // If prompt is provided on comment events, use agent mode
       if (context.inputs.prompt) {
+        console.log(`Prompt provided, using agent mode`);
         return "agent";
       }
       // Default to tag mode if @claude mention found
+      console.log(`Checking for trigger in comment...`);
       if (checkContainsTrigger(context)) {
+        console.log(`Trigger found, using tag mode`);
         return "tag";
       }
     }
@@ -76,8 +83,8 @@ export function detectMode(context: GitHubContext): AutoDetectedMode {
     }
   }
 
-  // Default to agent mode (which won't trigger without a prompt)
-  return "agent";
+  // No trigger found - return undefined to signal that action should not run
+  return undefined;
 }
 
 export function getModeDescription(mode: AutoDetectedMode): string {
@@ -91,15 +98,9 @@ export function getModeDescription(mode: AutoDetectedMode): string {
   }
 }
 
-function validateTrackProgressEvent(context: GitHubContext): void {
+function validateTrackProgressEvent(context: GiteaContext): void {
   // track_progress is only valid for pull_request and issue events
-  const validEvents = [
-    "pull_request",
-    "issues",
-    "issue_comment",
-    "pull_request_review_comment",
-    "pull_request_review",
-  ];
+  const validEvents = ["pull_request", "issues", "issue_comment"];
   if (!validEvents.includes(context.eventName)) {
     throw new Error(
       `track_progress is only supported for events: ${validEvents.join(", ")}. ` +
@@ -130,7 +131,7 @@ export function shouldUseTrackingComment(mode: AutoDetectedMode): boolean {
 
 export function getDefaultPromptForMode(
   mode: AutoDetectedMode,
-  context: GitHubContext,
+  context: GiteaContext,
 ): string | undefined {
   switch (mode) {
     case "tag":

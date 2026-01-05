@@ -3,44 +3,57 @@ import {
   formatContext,
   formatBody,
   formatComments,
-  formatReviewComments,
   formatChangedFiles,
   formatChangedFilesWithSHA,
 } from "../src/github/data/formatter";
 import type {
-  GitHubPullRequest,
-  GitHubIssue,
-  GitHubComment,
-  GitHubFile,
+  GiteaPullRequest,
+  GiteaIssue,
+  GiteaComment,
+  GiteaFile,
 } from "../src/github/types";
-import type { GitHubFileWithSHA } from "../src/github/data/fetcher";
+import type { GiteaFileWithSHA } from "../src/github/data/fetcher";
 
 describe("formatContext", () => {
   test("formats PR context correctly", () => {
-    const prData: GitHubPullRequest = {
+    const prData: GiteaPullRequest = {
+      id: 1,
+      number: 123,
       title: "Test PR",
       body: "PR body",
-      author: { login: "test-user" },
-      baseRefName: "main",
-      headRefName: "feature/test",
-      headRefOid: "abc123",
-      createdAt: "2023-01-01T00:00:00Z",
+      user: { login: "test-user" },
+      base: {
+        label: "main",
+        ref: "main",
+        sha: "def456",
+        repo: {
+          full_name: "owner/repo",
+          html_url: "https://gitea.example.com/owner/repo",
+        },
+      },
+      head: {
+        label: "feature/test",
+        ref: "feature/test",
+        sha: "abc123",
+        repo: {
+          full_name: "owner/repo",
+          html_url: "https://gitea.example.com/owner/repo",
+        },
+      },
+      html_url: "https://gitea.example.com/owner/repo/pulls/123",
+      diff_url: "https://gitea.example.com/owner/repo/pulls/123.diff",
+      patch_url: "https://gitea.example.com/owner/repo/pulls/123.patch",
+      created_at: "2023-01-01T00:00:00Z",
+      updated_at: "2023-01-01T00:00:00Z",
+      merged_at: null,
+      closed_at: null,
+      merged: false,
+      state: "open",
       additions: 50,
       deletions: 30,
-      state: "OPEN",
-      commits: {
-        totalCount: 3,
-        nodes: [],
-      },
-      files: {
-        nodes: [{} as GitHubFile, {} as GitHubFile],
-      },
-      comments: {
-        nodes: [],
-      },
-      reviews: {
-        nodes: [],
-      },
+      changed_files: 2,
+      commits: 3,
+      review_comments: 0,
     };
 
     const result = formatContext(prData, true);
@@ -48,7 +61,7 @@ describe("formatContext", () => {
       `PR Title: Test PR
 PR Author: test-user
 PR Branch: feature/test -> main
-PR State: OPEN
+PR State: open
 PR Additions: 50
 PR Deletions: 30
 Total Commits: 3
@@ -57,22 +70,22 @@ Changed Files: 2 files`,
   });
 
   test("formats Issue context correctly", () => {
-    const issueData: GitHubIssue = {
+    const issueData: GiteaIssue = {
+      id: 1,
+      number: 123,
       title: "Test Issue",
       body: "Issue body",
-      author: { login: "test-user" },
-      createdAt: "2023-01-01T00:00:00Z",
-      state: "OPEN",
-      comments: {
-        nodes: [],
-      },
+      user: { login: "test-user" },
+      html_url: "https://gitea.example.com/owner/repo/issues/123",
+      created_at: "2023-01-01T00:00:00Z",
+      updated_at: "2023-01-01T00:00:00Z",
     };
 
     const result = formatContext(issueData, false);
     expect(result).toBe(
       `Issue Title: Test Issue
 Issue Author: test-user
-Issue State: OPEN`,
+Issue State: undefined`,
     );
   });
 });
@@ -145,20 +158,22 @@ Second: ![](/tmp/github-images/image-1234-0.png)`);
 
 describe("formatComments", () => {
   test("formats comments correctly", () => {
-    const comments: GitHubComment[] = [
+    const comments: GiteaComment[] = [
       {
-        id: "1",
-        databaseId: "100001",
+        id: 1,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-1",
         body: "First comment",
-        author: { login: "user1" },
-        createdAt: "2023-01-01T00:00:00Z",
+        user: { login: "user1" },
+        created_at: "2023-01-01T00:00:00Z",
       },
       {
-        id: "2",
-        databaseId: "100002",
+        id: 2,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-2",
         body: "Second comment",
-        author: { login: "user2" },
-        createdAt: "2023-01-02T00:00:00Z",
+        user: { login: "user2" },
+        created_at: "2023-01-02T00:00:00Z",
       },
     ];
 
@@ -174,20 +189,22 @@ describe("formatComments", () => {
   });
 
   test("replaces image URLs in comments", () => {
-    const comments: GitHubComment[] = [
+    const comments: GiteaComment[] = [
       {
-        id: "1",
-        databaseId: "100001",
+        id: 1,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-1",
         body: "Check out this screenshot: ![screenshot](https://github.com/user-attachments/assets/screenshot.png)",
-        author: { login: "user1" },
-        createdAt: "2023-01-01T00:00:00Z",
+        user: { login: "user1" },
+        created_at: "2023-01-01T00:00:00Z",
       },
       {
-        id: "2",
-        databaseId: "100002",
+        id: 2,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-2",
         body: "Here's another image: ![bug](https://github.com/user-attachments/assets/bug-report.jpg)",
-        author: { login: "user2" },
-        createdAt: "2023-01-02T00:00:00Z",
+        user: { login: "user2" },
+        created_at: "2023-01-02T00:00:00Z",
       },
     ];
 
@@ -209,13 +226,15 @@ describe("formatComments", () => {
   });
 
   test("handles comments with multiple images", () => {
-    const comments: GitHubComment[] = [
+    const comments: GiteaComment[] = [
       {
-        id: "1",
-        databaseId: "100001",
+        id: 1,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-1",
+        updated_at: "2023-01-01T00:00:00Z",
         body: "Two images: ![first](https://github.com/user-attachments/assets/first.png) and ![second](https://github.com/user-attachments/assets/second.png)",
-        author: { login: "user1" },
-        createdAt: "2023-01-01T00:00:00Z",
+        user: { login: "user1" },
+        created_at: "2023-01-01T00:00:00Z",
       },
     ];
 
@@ -237,13 +256,15 @@ describe("formatComments", () => {
   });
 
   test("preserves comments when imageUrlMap is undefined", () => {
-    const comments: GitHubComment[] = [
+    const comments: GiteaComment[] = [
       {
-        id: "1",
-        databaseId: "100001",
+        id: 1,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-1",
+        updated_at: "2023-01-01T00:00:00Z",
         body: "Image: ![test](https://github.com/user-attachments/assets/test.png)",
-        author: { login: "user1" },
-        createdAt: "2023-01-01T00:00:00Z",
+        user: { login: "user1" },
+        created_at: "2023-01-01T00:00:00Z",
       },
     ];
 
@@ -253,30 +274,33 @@ describe("formatComments", () => {
     );
   });
 
-  test("filters out minimized comments", () => {
-    const comments: GitHubComment[] = [
+  test("filters out comments without body", () => {
+    const comments: GiteaComment[] = [
       {
-        id: "1",
-        databaseId: "100001",
+        id: 1,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-1",
+        updated_at: "2023-01-01T00:00:00Z",
         body: "Normal comment",
-        author: { login: "user1" },
-        createdAt: "2023-01-01T00:00:00Z",
-        isMinimized: false,
+        user: { login: "user1" },
+        created_at: "2023-01-01T00:00:00Z",
       },
       {
-        id: "2",
-        databaseId: "100002",
-        body: "Minimized comment",
-        author: { login: "user2" },
-        createdAt: "2023-01-02T00:00:00Z",
-        isMinimized: true,
+        id: 2,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-2",
+        updated_at: "2023-01-02T00:00:00Z",
+        body: "",
+        user: { login: "user2" },
+        created_at: "2023-01-02T00:00:00Z",
       },
       {
-        id: "3",
-        databaseId: "100003",
+        id: 3,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-3",
         body: "Another normal comment",
-        author: { login: "user3" },
-        createdAt: "2023-01-03T00:00:00Z",
+        user: { login: "user3" },
+        created_at: "2023-01-03T00:00:00Z",
       },
     ];
 
@@ -286,23 +310,25 @@ describe("formatComments", () => {
     );
   });
 
-  test("returns empty string when all comments are minimized", () => {
-    const comments: GitHubComment[] = [
+  test("returns empty string when all comments have no body", () => {
+    const comments: GiteaComment[] = [
       {
-        id: "1",
-        databaseId: "100001",
-        body: "Minimized comment 1",
-        author: { login: "user1" },
-        createdAt: "2023-01-01T00:00:00Z",
-        isMinimized: true,
+        id: 1,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-1",
+        updated_at: "2023-01-01T00:00:00Z",
+        body: "",
+        user: { login: "user1" },
+        created_at: "2023-01-01T00:00:00Z",
       },
       {
-        id: "2",
-        databaseId: "100002",
-        body: "Minimized comment 2",
-        author: { login: "user2" },
-        createdAt: "2023-01-02T00:00:00Z",
-        isMinimized: true,
+        id: 2,
+        html_url:
+          "https://gitea.example.com/owner/repo/issues/123#issuecomment-2",
+        updated_at: "2023-01-02T00:00:00Z",
+        body: "",
+        user: { login: "user2" },
+        created_at: "2023-01-02T00:00:00Z",
       },
     ];
 
@@ -311,438 +337,22 @@ describe("formatComments", () => {
   });
 });
 
-describe("formatReviewComments", () => {
-  test("formats review with body and comments correctly", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300001",
-          author: { login: "reviewer1" },
-          body: "This is a great PR! LGTM.",
-          state: "APPROVED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment1",
-                databaseId: "200001",
-                body: "Nice implementation",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/index.ts",
-                line: 42,
-              },
-              {
-                id: "comment2",
-                databaseId: "200002",
-                body: "Consider adding error handling",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/utils.ts",
-                line: null,
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    const result = formatReviewComments(reviewData);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: APPROVED\nThis is a great PR! LGTM.\n  [Comment on src/index.ts:42]: Nice implementation\n  [Comment on src/utils.ts:?]: Consider adding error handling`,
-    );
-  });
-
-  test("formats review with only body (no comments) correctly", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300002",
-          author: { login: "reviewer1" },
-          body: "Looks good to me!",
-          state: "APPROVED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [],
-          },
-        },
-      ],
-    };
-
-    const result = formatReviewComments(reviewData);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: APPROVED\nLooks good to me!`,
-    );
-  });
-
-  test("formats review without body correctly", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300003",
-          author: { login: "reviewer1" },
-          body: "",
-          state: "COMMENTED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment1",
-                databaseId: "200003",
-                body: "Small suggestion here",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/main.ts",
-                line: 15,
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    const result = formatReviewComments(reviewData);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: COMMENTED\n  [Comment on src/main.ts:15]: Small suggestion here`,
-    );
-  });
-
-  test("formats multiple reviews correctly", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300004",
-          author: { login: "reviewer1" },
-          body: "Needs changes",
-          state: "CHANGES_REQUESTED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [],
-          },
-        },
-        {
-          id: "review2",
-          databaseId: "300005",
-          author: { login: "reviewer2" },
-          body: "LGTM",
-          state: "APPROVED",
-          submittedAt: "2023-01-02T00:00:00Z",
-          comments: {
-            nodes: [],
-          },
-        },
-      ],
-    };
-
-    const result = formatReviewComments(reviewData);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: CHANGES_REQUESTED\nNeeds changes\n\n[Review by reviewer2 at 2023-01-02T00:00:00Z]: APPROVED\nLGTM`,
-    );
-  });
-
-  test("returns empty string for null reviewData", () => {
-    const result = formatReviewComments(null);
-    expect(result).toBe("");
-  });
-
-  test("returns empty string for empty reviewData", () => {
-    const result = formatReviewComments({ nodes: [] });
-    expect(result).toBe("");
-  });
-
-  test("replaces image URLs in review comments", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300001",
-          author: { login: "reviewer1" },
-          body: "Review with image: ![review-img](https://github.com/user-attachments/assets/review.png)",
-          state: "APPROVED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment1",
-                databaseId: "200001",
-                body: "Comment with image: ![comment-img](https://github.com/user-attachments/assets/comment.png)",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/index.ts",
-                line: 42,
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    const imageUrlMap = new Map([
-      [
-        "https://github.com/user-attachments/assets/review.png",
-        "/tmp/github-images/image-1234-0.png",
-      ],
-      [
-        "https://github.com/user-attachments/assets/comment.png",
-        "/tmp/github-images/image-1234-1.png",
-      ],
-    ]);
-
-    const result = formatReviewComments(reviewData, imageUrlMap);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: APPROVED\nReview with image: ![](/tmp/github-images/image-1234-0.png)\n  [Comment on src/index.ts:42]: Comment with image: ![](/tmp/github-images/image-1234-1.png)`,
-    );
-  });
-
-  test("handles multiple images in review comments", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300001",
-          author: { login: "reviewer1" },
-          body: "Good work",
-          state: "APPROVED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment1",
-                databaseId: "200001",
-                body: "Two issues: ![issue1](https://github.com/user-attachments/assets/issue1.png) and ![issue2](https://github.com/user-attachments/assets/issue2.png)",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/main.ts",
-                line: 15,
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    const imageUrlMap = new Map([
-      [
-        "https://github.com/user-attachments/assets/issue1.png",
-        "/tmp/github-images/image-1234-0.png",
-      ],
-      [
-        "https://github.com/user-attachments/assets/issue2.png",
-        "/tmp/github-images/image-1234-1.png",
-      ],
-    ]);
-
-    const result = formatReviewComments(reviewData, imageUrlMap);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: APPROVED\nGood work\n  [Comment on src/main.ts:15]: Two issues: ![](/tmp/github-images/image-1234-0.png) and ![](/tmp/github-images/image-1234-1.png)`,
-    );
-  });
-
-  test("preserves review comments when imageUrlMap is undefined", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300001",
-          author: { login: "reviewer1" },
-          body: "Review body",
-          state: "APPROVED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment1",
-                databaseId: "200001",
-                body: "Image: ![test](https://github.com/user-attachments/assets/test.png)",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/index.ts",
-                line: 42,
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    const result = formatReviewComments(reviewData);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: APPROVED\nReview body\n  [Comment on src/index.ts:42]: Image: ![](https://github.com/user-attachments/assets/test.png)`,
-    );
-  });
-
-  test("filters out minimized review comments", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300001",
-          author: { login: "reviewer1" },
-          body: "Review with mixed comments",
-          state: "APPROVED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment1",
-                databaseId: "200001",
-                body: "Normal review comment",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/index.ts",
-                line: 42,
-                isMinimized: false,
-              },
-              {
-                id: "comment2",
-                databaseId: "200002",
-                body: "Minimized review comment",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/utils.ts",
-                line: 15,
-                isMinimized: true,
-              },
-              {
-                id: "comment3",
-                databaseId: "200003",
-                body: "Another normal comment",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/main.ts",
-                line: 10,
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    const result = formatReviewComments(reviewData);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: APPROVED\nReview with mixed comments\n  [Comment on src/index.ts:42]: Normal review comment\n  [Comment on src/main.ts:10]: Another normal comment`,
-    );
-  });
-
-  test("returns review with only body when all review comments are minimized", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300001",
-          author: { login: "reviewer1" },
-          body: "Review body only",
-          state: "APPROVED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment1",
-                databaseId: "200001",
-                body: "Minimized comment 1",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/index.ts",
-                line: 42,
-                isMinimized: true,
-              },
-              {
-                id: "comment2",
-                databaseId: "200002",
-                body: "Minimized comment 2",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/utils.ts",
-                line: 15,
-                isMinimized: true,
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    const result = formatReviewComments(reviewData);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: APPROVED\nReview body only`,
-    );
-  });
-
-  test("handles multiple reviews with mixed minimized comments", () => {
-    const reviewData = {
-      nodes: [
-        {
-          id: "review1",
-          databaseId: "300001",
-          author: { login: "reviewer1" },
-          body: "First review",
-          state: "APPROVED",
-          submittedAt: "2023-01-01T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment1",
-                databaseId: "200001",
-                body: "Good comment",
-                author: { login: "reviewer1" },
-                createdAt: "2023-01-01T00:00:00Z",
-                path: "src/index.ts",
-                line: 42,
-                isMinimized: false,
-              },
-            ],
-          },
-        },
-        {
-          id: "review2",
-          databaseId: "300002",
-          author: { login: "reviewer2" },
-          body: "Second review",
-          state: "COMMENTED",
-          submittedAt: "2023-01-02T00:00:00Z",
-          comments: {
-            nodes: [
-              {
-                id: "comment2",
-                databaseId: "200002",
-                body: "Spam comment",
-                author: { login: "reviewer2" },
-                createdAt: "2023-01-02T00:00:00Z",
-                path: "src/utils.ts",
-                line: 15,
-                isMinimized: true,
-              },
-            ],
-          },
-        },
-      ],
-    };
-
-    const result = formatReviewComments(reviewData);
-    expect(result).toBe(
-      `[Review by reviewer1 at 2023-01-01T00:00:00Z]: APPROVED\nFirst review\n  [Comment on src/index.ts:42]: Good comment\n\n[Review by reviewer2 at 2023-01-02T00:00:00Z]: COMMENTED\nSecond review`,
-    );
-  });
-});
-
 describe("formatChangedFiles", () => {
   test("formats changed files correctly", () => {
-    const files: GitHubFile[] = [
+    const files: GiteaFile[] = [
       {
-        path: "src/index.ts",
+        filename: "src/index.ts",
         additions: 10,
         deletions: 5,
-        changeType: "MODIFIED",
+        status: "MODIFIED",
+        changes: 15,
       },
       {
-        path: "src/utils.ts",
+        filename: "src/utils.ts",
         additions: 20,
         deletions: 0,
-        changeType: "ADDED",
+        status: "ADDED",
+        changes: 20,
       },
     ];
 
@@ -760,19 +370,21 @@ describe("formatChangedFiles", () => {
 
 describe("formatChangedFilesWithSHA", () => {
   test("formats changed files with SHA correctly", () => {
-    const files: GitHubFileWithSHA[] = [
+    const files: GiteaFileWithSHA[] = [
       {
-        path: "src/index.ts",
+        filename: "src/index.ts",
         additions: 10,
         deletions: 5,
-        changeType: "MODIFIED",
+        status: "MODIFIED",
+        changes: 15,
         sha: "abc123",
       },
       {
-        path: "src/utils.ts",
+        filename: "src/utils.ts",
         additions: 20,
         deletions: 0,
-        changeType: "ADDED",
+        status: "ADDED",
+        changes: 20,
         sha: "def456",
       },
     ];

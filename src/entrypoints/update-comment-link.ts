@@ -1,29 +1,66 @@
 #!/usr/bin/env bun
 
-import { createOctokit } from "../github/api/client";
 import * as fs from "fs/promises";
 import {
   updateCommentBody,
   type CommentUpdateInput,
 } from "../github/operations/comment-logic";
 import {
-  parseGitHubContext,
-  isPullRequestReviewCommentEvent,
+  parseGiteaContext,
+  isIssueCommentEvent,
   isEntityContext,
 } from "../github/context";
-import { GITHUB_SERVER_URL } from "../github/api/config";
-import { checkAndCommitOrDeleteBranch } from "../github/operations/branch-cleanup";
+import { GITEA_SERVER_URL, GITEA_API_URL } from "../github/api/config";
 import { updateClaudeComment } from "../github/operations/comments/update-claude-comment";
+
+/**
+ * Fetch the correct run number from Gitea API
+ * Gitea Actions' github.run_id provides an internal tracking ID, not the UI run number
+ */
+async function getGiteaRunNumber(
+  owner: string,
+  repo: string,
+  giteaToken: string,
+): Promise<string> {
+  try {
+    // Query the most recent runs to find the current one
+    // GET /repos/{owner}/{repo}/actions/runs
+    const runsUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/actions/runs`;
+    const response = await fetch(runsUrl, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `token ${giteaToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      return "";
+    }
+
+    const data = await response.json();
+
+    // Get the most recent run (first in the list)
+    if (data.workflow_runs && data.workflow_runs.length > 0) {
+      const latestRun = data.workflow_runs[0];
+      // Return the run_number which is what appears in the UI URL
+      return latestRun.run_number.toString();
+    }
+
+    return "";
+  } catch (error) {
+    return "";
+  }
+}
 
 async function run() {
   try {
     const commentId = parseInt(process.env.CLAUDE_COMMENT_ID!);
-    const githubToken = process.env.GITHUB_TOKEN!;
+    const giteaToken = process.env.GITEA_TOKEN!;
     const claudeBranch = process.env.CLAUDE_BRANCH;
     const baseBranch = process.env.BASE_BRANCH || "main";
     const triggerUsername = process.env.TRIGGER_USERNAME;
 
-    const context = parseGitHubContext();
+    const context = parseGiteaContext();
 
     // This script is only called for entity-based events
     if (!isEntityContext(context)) {
@@ -32,63 +69,43 @@ async function run() {
 
     const { owner, repo } = context.repository;
 
-    const octokit = createOctokit(githubToken);
-
-    const serverUrl = GITHUB_SERVER_URL;
-    const jobUrl = `${serverUrl}/${owner}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+    // Fetch the correct run number from Gitea API
+    const runNumber = await getGiteaRunNumber(owner, repo, giteaToken);
+    const serverUrl = GITEA_SERVER_URL;
+    const jobUrl = `${serverUrl}/${owner}/${repo}/actions/runs/${runNumber || process.env.GITEA_RUN_ID}`;
 
     let comment;
-    let isPRReviewComment = false;
+    let isPRComment = false;
 
     try {
-      // GitHub has separate ID namespaces for review comments and issue comments
-      // We need to use the correct API based on the event type
-      if (isPullRequestReviewCommentEvent(context)) {
-        // For PR review comments, use the pulls API
-        console.log(`Fetching PR review comment ${commentId}`);
-        const { data: prComment } = await octokit.rest.pulls.getReviewComment({
-          owner,
-          repo,
-          comment_id: commentId,
-        });
-        comment = prComment;
-        isPRReviewComment = true;
-        console.log("Successfully fetched as PR review comment");
+      // For Gitea, we use the same API endpoint for all comments
+      // GET /repos/{owner}/{repo}/issues/comments/{id}
+      const commentUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/issues/comments/${commentId}`;
+      const response = await fetch(commentUrl, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `token ${giteaToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch comment: ${response.status} - ${await response.text()}`,
+        );
       }
 
-      // For all other event types, use the issues API
-      if (!comment) {
-        console.log(`Fetching issue comment ${commentId}`);
-        const { data: issueComment } = await octokit.rest.issues.getComment({
-          owner,
-          repo,
-          comment_id: commentId,
-        });
-        comment = issueComment;
-        isPRReviewComment = false;
-        console.log("Successfully fetched as issue comment");
-      }
+      comment = (await response.json()) as { body: string };
+      isPRComment = context.isPR;
+      console.log(
+        `Successfully fetched ${isPRComment ? "PR" : "issue"} comment`,
+      );
     } catch (finalError) {
-      // If all attempts fail, try to determine more information about the comment
+      // If fetching fails, try to determine more information about the comment
       console.error("Failed to fetch comment. Debug info:");
       console.error(`Comment ID: ${commentId}`);
       console.error(`Event name: ${context.eventName}`);
       console.error(`Entity number: ${context.entityNumber}`);
       console.error(`Repository: ${context.repository.full_name}`);
-
-      // Try to get the PR info to understand the comment structure
-      try {
-        const { data: pr } = await octokit.rest.pulls.get({
-          owner,
-          repo,
-          pull_number: context.entityNumber,
-        });
-        console.log(`PR state: ${pr.state}`);
-        console.log(`PR comments count: ${pr.comments}`);
-        console.log(`PR review comments count: ${pr.review_comments}`);
-      } catch {
-        console.error("Could not fetch PR info for debugging");
-      }
 
       throw finalError;
     }
@@ -97,15 +114,39 @@ async function run() {
 
     // Check if we need to add branch link for new branches
     const useCommitSigning = process.env.USE_COMMIT_SIGNING === "true";
-    const { shouldDeleteBranch, branchLink } =
-      await checkAndCommitOrDeleteBranch(
-        octokit,
-        owner,
-        repo,
-        claudeBranch,
-        baseBranch,
-        useCommitSigning,
-      );
+
+    // For Gitea, we don't have a separate branch-cleanup module
+    // We'll handle this inline
+    let shouldDeleteBranch = false;
+    let branchLink = "";
+
+    if (claudeBranch) {
+      if (!useCommitSigning) {
+        // Check if branch exists in remote
+        const branchRefUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/git/refs/heads/${claudeBranch}`;
+        const branchRefResponse = await fetch(branchRefUrl, {
+          headers: {
+            Accept: "application/json",
+            Authorization: `token ${giteaToken}`,
+          },
+        });
+
+        if (branchRefResponse.ok) {
+          // Branch exists, add link
+          const branchUrl = `${GITEA_SERVER_URL}/${owner}/${repo}/src/branch/${claudeBranch}`;
+          branchLink = `\n[View branch](${branchUrl})`;
+        } else {
+          // Branch doesn't exist (was never created or was deleted)
+          shouldDeleteBranch = true;
+        }
+      } else {
+        // For commit signing mode, we need to check if the branch was created
+        // This is more complex with Gitea's API, so we'll use a simpler approach
+        // Just add the link assuming it exists
+        const branchUrl = `${GITEA_SERVER_URL}/${owner}/${repo}/src/branch/${claudeBranch}`;
+        branchLink = `\n[View branch](${branchUrl})`;
+      }
+    }
 
     // Check if we need to add PR URL when we have a new branch
     let prLink = "";
@@ -121,27 +162,33 @@ async function run() {
       if (!containsPRUrl) {
         // Check if there are changes to the branch compared to the default branch
         try {
-          const { data: comparison } =
-            await octokit.rest.repos.compareCommitsWithBasehead({
-              owner,
-              repo,
-              basehead: `${baseBranch}...${claudeBranch}`,
-            });
+          // Gitea doesn't have a direct compareCommits API, so we'll check the branch status
+          const branchRefUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/git/commits?sha=${claudeBranch}&limit=1`;
+          const branchRefResponse = await fetch(branchRefUrl, {
+            headers: {
+              Accept: "application/json",
+              Authorization: `token ${giteaToken}`,
+            },
+          });
 
-          // If there are changes (commits or file changes), add the PR URL
-          if (
-            comparison.total_commits > 0 ||
-            (comparison.files && comparison.files.length > 0)
-          ) {
-            const entityType = context.isPR ? "PR" : "Issue";
-            const prTitle = encodeURIComponent(
-              `${entityType} #${context.entityNumber}: Changes from Claude`,
-            );
-            const prBody = encodeURIComponent(
-              `This PR addresses ${entityType.toLowerCase()} #${context.entityNumber}\n\nGenerated with [Claude Code](https://claude.ai/code)`,
-            );
-            const prUrl = `${serverUrl}/${owner}/${repo}/compare/${baseBranch}...${claudeBranch}?quick_pull=1&title=${prTitle}&body=${prBody}`;
-            prLink = `\n[Create a PR](${prUrl})`;
+          if (branchRefResponse.ok) {
+            const branchCommits = (await branchRefResponse.json()) as Array<{
+              sha: string;
+            }>;
+
+            // If there's at least one commit, there are changes
+            if (branchCommits.length > 0) {
+              const entityType = context.isPR ? "PR" : "Issue";
+              const prTitle = encodeURIComponent(
+                `${entityType} #${context.entityNumber}: Changes from Claude`,
+              );
+              const prBody = encodeURIComponent(
+                `This PR addresses ${entityType.toLowerCase()} #${context.entityNumber}\n\nGenerated with [Claude Code](https://claude.ai/code)`,
+              );
+              // Gitea's quick pull format
+              const prUrl = `${GITEA_SERVER_URL}/${owner}/${repo}/compare/${baseBranch}...${claudeBranch}?quick_pull=1&title=${prTitle}&body=${prBody}`;
+              prLink = `\n[Create a PR](${prUrl})`;
+            }
           }
         } catch (error) {
           console.error("Error checking for changes in branch:", error);
@@ -217,19 +264,19 @@ async function run() {
     const updatedBody = updateCommentBody(commentInput);
 
     try {
-      await updateClaudeComment(octokit.rest, {
+      await updateClaudeComment({
         owner,
         repo,
         commentId,
         body: updatedBody,
-        isPullRequestReviewComment: isPRReviewComment,
+        isPullRequestComment: isPRComment,
       });
       console.log(
-        `✅ Updated ${isPRReviewComment ? "PR review" : "issue"} comment ${commentId} with job link`,
+        `✅ Updated ${isPRComment ? "PR" : "issue"} comment ${commentId} with job link`,
       );
     } catch (updateError) {
       console.error(
-        `Failed to update ${isPRReviewComment ? "PR review" : "issue"} comment:`,
+        `Failed to update ${isPRComment ? "PR" : "issue"} comment:`,
         updateError,
       );
       throw updateError;

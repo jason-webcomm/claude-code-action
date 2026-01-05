@@ -1,5 +1,4 @@
-import type { GitHubContext } from "../github/context";
-import type { Octokits } from "../github/api/client";
+import type { GiteaContext } from "../github/context";
 import type { Mode } from "../modes/types";
 
 export type PrepareResult = {
@@ -13,8 +12,7 @@ export type PrepareResult = {
 };
 
 export type PrepareOptions = {
-  context: GitHubContext;
-  octokit: Octokits;
+  context: GiteaContext;
   mode: Mode;
-  githubToken: string;
+  giteaToken: string;
 };

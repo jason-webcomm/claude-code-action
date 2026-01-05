@@ -1,4 +1,4 @@
-import type { GitHubContext } from "../github/context";
+import type { GiteaContext } from "../github/context";
 
 export type CommonFields = {
   repository: string;
@@ -9,41 +9,12 @@ export type CommonFields = {
   claudeBranch?: string;
 };
 
-type PullRequestReviewCommentEvent = {
-  eventName: "pull_request_review_comment";
-  isPR: true;
-  prNumber: string;
-  commentId?: string; // May be present for review comments
-  commentBody: string;
-  claudeBranch?: string;
-  baseBranch?: string;
-};
-
-type PullRequestReviewEvent = {
-  eventName: "pull_request_review";
-  isPR: true;
-  prNumber: string;
-  commentBody?: string; // May be absent for approvals without comments
-  claudeBranch?: string;
-  baseBranch?: string;
-};
-
 type IssueCommentEvent = {
   eventName: "issue_comment";
   commentId: string;
-  issueNumber: string;
-  isPR: false;
-  baseBranch: string;
-  claudeBranch: string;
-  commentBody: string;
-};
-
-// Not actually a real github event, since issue comments and PR coments are both sent as issue_comment
-type PullRequestCommentEvent = {
-  eventName: "issue_comment";
-  commentId: string;
-  prNumber: string;
-  isPR: true;
+  isPR: boolean;
+  prNumber?: string;
+  issueNumber?: string;
   commentBody: string;
   claudeBranch?: string;
   baseBranch?: string;
@@ -96,9 +67,6 @@ type PullRequestTargetEvent = PullRequestBaseEvent & {
 
 // Union type for all possible event types
 export type EventData =
-  | PullRequestReviewCommentEvent
-  | PullRequestReviewEvent
-  | PullRequestCommentEvent
   | IssueCommentEvent
   | IssueOpenedEvent
   | IssueAssignedEvent
@@ -109,5 +77,5 @@ export type EventData =
 // Combined type with separate eventData field
 export type PreparedContext = CommonFields & {
   eventData: EventData;
-  githubContext?: GitHubContext;
+  giteaContext?: GiteaContext;
 };

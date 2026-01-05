@@ -14,8 +14,8 @@ export function stripMarkdownImageAltText(content: string): string {
 }
 
 export function stripMarkdownLinkTitles(content: string): string {
-  content = content.replace(/(\[[^\]]*\]\([^)]+)\s+"[^"]*"/g, "$1");
-  content = content.replace(/(\[[^\]]*\]\([^)]+)\s+'[^']*'/g, "$1");
+  content = content.replace(/(\[[^\]]*\]\([^\)]+)\s+"[^"]*"/g, "$1");
+  content = content.replace(/(\[[^\]]*\]\([^\)]+)\s+'[^']*'/g, "$1");
   return content;
 }
 
@@ -58,43 +58,47 @@ export function sanitizeContent(content: string): string {
   content = stripMarkdownLinkTitles(content);
   content = stripHiddenAttributes(content);
   content = normalizeHtmlEntities(content);
-  content = redactGitHubTokens(content);
+  content = redactGiteaTokens(content);
   return content;
 }
 
-export function redactGitHubTokens(content: string): string {
-  // GitHub Personal Access Tokens (classic): ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (40 chars)
+export function redactGiteaTokens(content: string): string {
+  // Gitea Personal Access Tokens: gitea_token_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (variable length)
+  // Note: Gitea token format may vary based on configuration
   content = content.replace(
-    /\bghp_[A-Za-z0-9]{36}\b/g,
-    "[REDACTED_GITHUB_TOKEN]",
+    /\bgitea_token_[A-Za-z0-9_]{20,}\b/g,
+    "[REDACTED_GITEA_TOKEN]",
   );
 
-  // GitHub OAuth tokens: gho_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (40 chars)
+  // Gitea OAuth access tokens (if using OAuth): gitea_oauth_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
   content = content.replace(
-    /\bgho_[A-Za-z0-9]{36}\b/g,
-    "[REDACTED_GITHUB_TOKEN]",
+    /\bgitea_oauth_[A-Za-z0-9_]{20,}\b/g,
+    "[REDACTED_GITEA_TOKEN]",
   );
 
-  // GitHub installation tokens: ghs_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (40 chars)
-  content = content.replace(
-    /\bghs_[A-Za-z0-9]{36}\b/g,
-    "[REDACTED_GITHUB_TOKEN]",
-  );
+  // Generic token patterns that might be used with Gitea
+  content = content.replace(/\b[A-Za-z0-9_-]{20,}\b/g, (match) => {
+    // Only redact if it looks like a token (contains uppercase, lowercase, numbers, and underscores/dashes)
+    const hasUpper = /[A-Z]/.test(match);
+    const hasLower = /[a-z]/.test(match);
+    const hasNumber = /[0-9]/.test(match);
+    const hasSpecial = /[_-]/.test(match);
 
-  // GitHub refresh tokens: ghr_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (40 chars)
-  content = content.replace(
-    /\bghr_[A-Za-z0-9]{36}\b/g,
-    "[REDACTED_GITHUB_TOKEN]",
-  );
+    // Redact if it has at least 3 of the 4 characteristics and is long
+    if (
+      [hasUpper, hasLower, hasNumber, hasSpecial].filter(Boolean).length >= 3 &&
+      match.length >= 20
+    ) {
+      return "[REDACTED_GITEA_TOKEN]";
+    }
 
-  // GitHub fine-grained personal access tokens: github_pat_XXXXXXXXXX (up to 255 chars)
-  content = content.replace(
-    /\bgithub_pat_[A-Za-z0-9_]{11,221}\b/g,
-    "[REDACTED_GITHUB_TOKEN]",
-  );
+    return match;
+  });
 
   return content;
 }
 
 export const stripHtmlComments = (content: string) =>
   content.replace(/<!--[\s\S]*?-->/g, "");
+// Backward compatibility alias
+export const redactGitHubTokens = redactGiteaTokens;

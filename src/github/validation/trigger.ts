@@ -1,17 +1,13 @@
 #!/usr/bin/env bun
 
-import * as core from "@actions/core";
 import {
   isIssuesEvent,
-  isIssuesAssignedEvent,
   isIssueCommentEvent,
   isPullRequestEvent,
-  isPullRequestReviewEvent,
-  isPullRequestReviewCommentEvent,
 } from "../context";
-import type { ParsedGitHubContext } from "../context";
+import type { GiteaContext } from "../context";
 
-export function checkContainsTrigger(context: ParsedGitHubContext): boolean {
+export function checkContainsTrigger(context: GiteaContext): boolean {
   const {
     inputs: { assigneeTrigger, labelTrigger, triggerPhrase, prompt },
   } = context;
@@ -23,7 +19,7 @@ export function checkContainsTrigger(context: ParsedGitHubContext): boolean {
   }
 
   // Check for assignee trigger
-  if (isIssuesAssignedEvent(context)) {
+  if (isIssuesEvent(context) && context.eventAction === "assigned") {
     // Remove @ symbol from assignee_trigger if present
     let triggerUser = assigneeTrigger.replace(/^@/, "");
     const assigneeUsername = context.payload.assignee?.login || "";
@@ -46,8 +42,8 @@ export function checkContainsTrigger(context: ParsedGitHubContext): boolean {
 
   // Check for issue body and title trigger on issue creation
   if (isIssuesEvent(context) && context.eventAction === "opened") {
-    const issueBody = context.payload.issue.body || "";
-    const issueTitle = context.payload.issue.title || "";
+    const issueBody = context.payload.issue?.body || "";
+    const issueTitle = context.payload.issue?.title || "";
     // Check for exact match with word boundaries or punctuation
     const regex = new RegExp(
       `(^|\\s)${escapeRegExp(triggerPhrase)}([\\s.,!?;:]|$)`,
@@ -72,8 +68,8 @@ export function checkContainsTrigger(context: ParsedGitHubContext): boolean {
 
   // Check for pull request body and title trigger
   if (isPullRequestEvent(context)) {
-    const prBody = context.payload.pull_request.body || "";
-    const prTitle = context.payload.pull_request.title || "";
+    const prBody = context.payload.pull_request?.body || "";
+    const prTitle = context.payload.pull_request?.title || "";
     // Check for exact match with word boundaries or punctuation
     const regex = new RegExp(
       `(^|\\s)${escapeRegExp(triggerPhrase)}([\\s.,!?;:]|$)`,
@@ -96,37 +92,21 @@ export function checkContainsTrigger(context: ParsedGitHubContext): boolean {
     }
   }
 
-  // Check for pull request review body trigger
-  if (
-    isPullRequestReviewEvent(context) &&
-    (context.eventAction === "submitted" || context.eventAction === "edited")
-  ) {
-    const reviewBody = context.payload.review.body || "";
-    // Check for exact match with word boundaries or punctuation
-    const regex = new RegExp(
-      `(^|\\s)${escapeRegExp(triggerPhrase)}([\\s.,!?;:]|$)`,
-    );
-    if (regex.test(reviewBody)) {
-      console.log(
-        `Pull request review contains exact trigger phrase '${triggerPhrase}'`,
-      );
-      return true;
-    }
-  }
-
   // Check for comment trigger
-  if (
-    isIssueCommentEvent(context) ||
-    isPullRequestReviewCommentEvent(context)
-  ) {
-    const commentBody = isIssueCommentEvent(context)
-      ? context.payload.comment.body
-      : context.payload.comment.body;
+  if (isIssueCommentEvent(context)) {
+    const commentBody = context.payload.comment?.body || "";
+    console.log(
+      `Checking comment trigger: commentBody="${commentBody}", triggerPhrase="${triggerPhrase}"`,
+    );
+    console.log(`Payload keys:`, Object.keys(context.payload));
+    console.log(`Payload comment:`, context.payload.comment);
     // Check for exact match with word boundaries or punctuation
     const regex = new RegExp(
       `(^|\\s)${escapeRegExp(triggerPhrase)}([\\s.,!?;:]|$)`,
     );
-    if (regex.test(commentBody)) {
+    const matches = regex.test(commentBody);
+    console.log(`Regex match result: ${matches}`);
+    if (matches) {
       console.log(`Comment contains exact trigger phrase '${triggerPhrase}'`);
       return true;
     }
@@ -141,8 +121,7 @@ export function escapeRegExp(string: string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export async function checkTriggerAction(context: ParsedGitHubContext) {
+export async function checkTriggerAction(context: GiteaContext) {
   const containsTrigger = checkContainsTrigger(context);
-  core.setOutput("contains_trigger", containsTrigger.toString());
   return containsTrigger;
 }

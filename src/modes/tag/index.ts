@@ -1,4 +1,5 @@
-import * as core from "@actions/core";
+import * as core from "../../gitea-actions/core";
+import { writeFile } from "fs/promises";
 import type { Mode, ModeOptions, ModeResult } from "../types";
 import { checkContainsTrigger } from "../../github/validation/trigger";
 import { checkHumanActor } from "../../github/validation/actor";
@@ -10,7 +11,7 @@ import {
 } from "../../github/operations/git-config";
 import { prepareMcpConfig } from "../../mcp/install-mcp-server";
 import {
-  fetchGitHubData,
+  fetchGiteaData,
   extractTriggerTimestamp,
 } from "../../github/data/fetcher";
 import { createPrompt, generateDefaultPrompt } from "../../create-prompt";
@@ -41,7 +42,7 @@ export const tagMode: Mode = {
   prepareContext(context, data) {
     return {
       mode: "tag",
-      githubContext: context,
+      giteaContext: context,
       commentId: data?.commentId,
       baseBranch: data?.baseBranch,
       claudeBranch: data?.claudeBranch,
@@ -60,27 +61,22 @@ export const tagMode: Mode = {
     return true;
   },
 
-  async prepare({
-    context,
-    octokit,
-    githubToken,
-  }: ModeOptions): Promise<ModeResult> {
+  async prepare({ context, giteaToken }: ModeOptions): Promise<ModeResult> {
     // Tag mode only handles entity-based events
     if (!isEntityContext(context)) {
       throw new Error("Tag mode requires entity context");
     }
 
     // Check if actor is human
-    await checkHumanActor(octokit.rest, context);
+    await checkHumanActor(context);
 
     // Create initial tracking comment
-    const commentData = await createInitialComment(octokit.rest, context);
+    const commentData = await createInitialComment(giteaToken, context);
     const commentId = commentData.id;
 
     const triggerTime = extractTriggerTimestamp(context);
 
-    const githubData = await fetchGitHubData({
-      octokits: octokit,
+    const githubData = await fetchGiteaData({
       repository: `${context.repository.owner}/${context.repository.repo}`,
       prNumber: context.entityNumber.toString(),
       isPR: context.isPR,
@@ -89,7 +85,7 @@ export const tagMode: Mode = {
     });
 
     // Setup branch
-    const branchInfo = await setupBranch(octokit, githubData, context);
+    const branchInfo = await setupBranch(giteaToken, githubData, context);
 
     // Configure git authentication
     // SSH signing takes precedence if provided
@@ -107,7 +103,7 @@ export const tagMode: Mode = {
         id: parseInt(context.inputs.botId),
       };
       try {
-        await configureGitAuth(githubToken, context, user);
+        await configureGitAuth(giteaToken, context, user);
       } catch (error) {
         console.error("Failed to configure git authentication:", error);
         throw error;
@@ -120,7 +116,7 @@ export const tagMode: Mode = {
       };
 
       try {
-        await configureGitAuth(githubToken, context, user);
+        await configureGitAuth(giteaToken, context, user);
       } catch (error) {
         console.error("Failed to configure git authentication:", error);
         throw error;
@@ -138,7 +134,7 @@ export const tagMode: Mode = {
 
     const userClaudeArgs = process.env.CLAUDE_ARGS || "";
     const userAllowedMCPTools = parseAllowedTools(userClaudeArgs).filter(
-      (tool) => tool.startsWith("mcp__github_"),
+      (tool) => tool.startsWith("mcp__gitea_"),
     );
 
     // Build claude_args for tag mode with required tools
@@ -151,10 +147,10 @@ export const tagMode: Mode = {
       "LS",
       "Read",
       "Write",
-      "mcp__github_comment__update_claude_comment",
-      "mcp__github_ci__get_ci_status",
-      "mcp__github_ci__get_workflow_run_details",
-      "mcp__github_ci__download_job_log",
+      "mcp__gitea_comment__update_claude_comment",
+      "mcp__gitea_ci__get_ci_status",
+      "mcp__gitea_ci__get_workflow_run_details",
+      "mcp__gitea_ci__download_job_log",
       ...userAllowedMCPTools,
     ];
 
@@ -173,14 +169,14 @@ export const tagMode: Mode = {
     } else {
       // When using API commit signing, use MCP file ops tools
       tagModeTools.push(
-        "mcp__github_file_ops__commit_files",
-        "mcp__github_file_ops__delete_files",
+        "mcp__gitea_file_ops__commit_files",
+        "mcp__gitea_file_ops__delete_files",
       );
     }
 
-    // Get our GitHub MCP servers configuration
+    // Get our Gitea MCP servers configuration
     const ourMcpConfig = await prepareMcpConfig({
-      githubToken,
+      giteaToken,
       owner: context.repository.owner,
       repo: context.repository.repo,
       branch: branchInfo.claudeBranch || branchInfo.currentBranch,
@@ -194,9 +190,13 @@ export const tagMode: Mode = {
     // Build complete claude_args with multiple --mcp-config flags
     let claudeArgs = "";
 
-    // Add our GitHub servers config
-    const escapedOurConfig = ourMcpConfig.replace(/'/g, "'\\''");
-    claudeArgs = `--mcp-config '${escapedOurConfig}'`;
+    // Add our Gitea servers config
+    // Write MCP config to working directory for Gitea Actions compatibility
+    // Using absolute path to ensure SDK can find the file regardless of working directory
+    const mcpConfigPath = `${process.cwd()}/claude-mcp-config.json`;
+    await writeFile(mcpConfigPath, ourMcpConfig, "utf-8");
+    console.log(`MCP config written to: ${mcpConfigPath}`);
+    claudeArgs = `--mcp-config ${mcpConfigPath}`;
 
     // Add required tools for tag mode
     claudeArgs += ` --allowedTools "${tagModeTools.join(",")}"`;
@@ -227,13 +227,13 @@ export const tagMode: Mode = {
     );
 
     // If a custom prompt is provided, inject it into the tag mode prompt
-    if (context.githubContext?.inputs?.prompt) {
+    if (context.giteaContext?.inputs?.prompt) {
       return (
         defaultPrompt +
         `
 
 <custom_instructions>
-${context.githubContext.inputs.prompt}
+${context.giteaContext.inputs.prompt}
 </custom_instructions>`
       );
     }

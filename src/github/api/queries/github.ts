@@ -1,129 +1,61 @@
-// GraphQL queries for GitHub data
+// REST API endpoints for Gitea data
 
-export const PR_QUERY = `
-  query($owner: String!, $repo: String!, $number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      pullRequest(number: $number) {
-        title
-        body
-        author {
-          login
-        }
-        baseRefName
-        headRefName
-        headRefOid
-        createdAt
-        updatedAt
-        lastEditedAt
-        additions
-        deletions
-        state
-        commits(first: 100) {
-          totalCount
-          nodes {
-            commit {
-              oid
-              message
-              author {
-                name
-                email
-              }
-            }
-          }
-        }
-        files(first: 100) {
-          nodes {
-            path
-            additions
-            deletions
-            changeType
-          }
-        }
-        comments(first: 100) {
-          nodes {
-            id
-            databaseId
-            body
-            author {
-              login
-            }
-            createdAt
-            updatedAt
-            lastEditedAt
-            isMinimized
-          }
-        }
-        reviews(first: 100) {
-          nodes {
-            id
-            databaseId
-            author {
-              login
-            }
-            body
-            state
-            submittedAt
-            updatedAt
-            lastEditedAt
-            comments(first: 100) {
-              nodes {
-                id
-                databaseId
-                body
-                path
-                line
-                author {
-                  login
-                }
-                createdAt
-                updatedAt
-                lastEditedAt
-                isMinimized
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
+/**
+ * Fetch Pull Request data
+ * GET /repos/{owner}/{repo}/pulls/{index}
+ */
+export const PR_ENDPOINT = (owner: string, repo: string, number: number) =>
+  `/repos/${owner}/${repo}/pulls/${number}`;
 
-export const ISSUE_QUERY = `
-  query($owner: String!, $repo: String!, $number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      issue(number: $number) {
-        title
-        body
-        author {
-          login
-        }
-        createdAt
-        updatedAt
-        lastEditedAt
-        state
-        comments(first: 100) {
-          nodes {
-            id
-            databaseId
-            body
-            author {
-              login
-            }
-            createdAt
-            updatedAt
-            lastEditedAt
-            isMinimized
-          }
-        }
-      }
-    }
-  }
-`;
+/**
+ * Fetch Issue data
+ * GET /repos/{owner}/{repo}/issues/{index}
+ */
+export const ISSUE_ENDPOINT = (owner: string, repo: string, number: number) =>
+  `/repos/${owner}/${repo}/issues/${number}`;
 
-export const USER_QUERY = `
-  query($login: String!) {
-    user(login: $login) {
-      name
-    }
-  }
-`;
+/**
+ * Fetch Pull Request comments
+ * GET /repos/{owner}/{repo}/issues/{index}/comments
+ */
+export const PR_COMMENTS_ENDPOINT = (
+  owner: string,
+  repo: string,
+  number: number,
+) => `/repos/${owner}/${repo}/issues/${number}/comments`;
+
+/**
+ * Fetch Issue comments
+ * GET /repos/{owner}/{repo}/issues/{index}/comments
+ */
+export const ISSUE_COMMENTS_ENDPOINT = (
+  owner: string,
+  repo: string,
+  number: number,
+) => `/repos/${owner}/${repo}/issues/${number}/comments`;
+
+/**
+ * Fetch user data
+ * GET /users/{username}
+ */
+export const USER_ENDPOINT = (username: string) => `/users/${username}`;
+
+/**
+ * Fetch Pull Request commits
+ * GET /repos/{owner}/{repo}/pulls/{index}/commits
+ */
+export const PR_COMMITS_ENDPOINT = (
+  owner: string,
+  repo: string,
+  number: number,
+) => `/repos/${owner}/${repo}/pulls/${number}/commits`;
+
+/**
+ * Fetch Pull Request files
+ * GET /repos/{owner}/{repo}/pulls/{index}/files
+ */
+export const PR_FILES_ENDPOINT = (
+  owner: string,
+  repo: string,
+  number: number,
+) => `/repos/${owner}/${repo}/pulls/${number}/files`;

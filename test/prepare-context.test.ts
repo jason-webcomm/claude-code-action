@@ -8,9 +8,6 @@ import {
   mockIssueAssignedContext,
   mockIssueCommentContext,
   mockPullRequestCommentContext,
-  mockPullRequestReviewContext,
-  mockPullRequestReviewCommentContext,
-  mockPullRequestReviewWithoutCommentContext,
 } from "./mockContext";
 
 const BASE_ENV = {
@@ -110,61 +107,8 @@ describe("parseEnvVarsWithContext", () => {
     });
   });
 
-  describe("pull_request_review event", () => {
-    test("should parse pull_request_review event correctly", () => {
-      process.env = BASE_ENV;
-      const result = prepareContext(mockPullRequestReviewContext, "12345");
-
-      expect(result.eventData.eventName).toBe("pull_request_review");
-      expect(result.eventData.isPR).toBe(true);
-      expect(result.triggerUsername).toBe("senior-developer");
-      if (result.eventData.eventName === "pull_request_review") {
-        expect(result.eventData.prNumber).toBe("321");
-        expect(result.eventData.commentBody).toBe(
-          "@claude can you check if the error handling is comprehensive enough in this PR?",
-        );
-      }
-    });
-  });
-
-  describe("pull_request_review event without comment", () => {
-    test("should parse pull_request_review event correctly", () => {
-      process.env = BASE_ENV;
-      const result = prepareContext(
-        mockPullRequestReviewWithoutCommentContext,
-        "12345",
-      );
-
-      expect(result.eventData.eventName).toBe("pull_request_review");
-      expect(result.eventData.isPR).toBe(true);
-      expect(result.triggerUsername).toBe("senior-developer");
-      if (result.eventData.eventName === "pull_request_review") {
-        expect(result.eventData.prNumber).toBe("321");
-        expect(result.eventData.commentBody).toBe("");
-      }
-    });
-  });
-
-  describe("pull_request_review_comment event", () => {
-    test("should parse pull_request_review_comment event correctly", () => {
-      process.env = BASE_ENV;
-      const result = prepareContext(
-        mockPullRequestReviewCommentContext,
-        "12345",
-      );
-
-      expect(result.eventData.eventName).toBe("pull_request_review_comment");
-      expect(result.eventData.isPR).toBe(true);
-      expect(result.triggerUsername).toBe("code-reviewer");
-      if (result.eventData.eventName === "pull_request_review_comment") {
-        expect(result.eventData.prNumber).toBe("999");
-        expect(result.eventData.commentId).toBe("99988877");
-        expect(result.eventData.commentBody).toBe(
-          "/claude is this the most efficient way to implement this algorithm?",
-        );
-      }
-    });
-  });
+  // Gitea does not have pull_request_review or pull_request_review_comment events
+  // These GitHub-specific event types are not supported
 
   describe("issues event", () => {
     beforeEach(() => {

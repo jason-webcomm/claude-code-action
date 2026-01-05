@@ -1,38 +1,44 @@
 import { describe, expect, test, spyOn, beforeEach, afterEach } from "bun:test";
-import * as core from "@actions/core";
+import * as core from "../src/gitea-actions/core";
 import { checkWritePermissions } from "../src/github/validation/permissions";
-import type { ParsedGitHubContext } from "../src/github/context";
+import type { GiteaContext } from "../src/github/context";
 import { CLAUDE_APP_BOT_ID, CLAUDE_BOT_LOGIN } from "../src/github/constants";
 
 describe("checkWritePermissions", () => {
   let coreInfoSpy: any;
   let coreWarningSpy: any;
   let coreErrorSpy: any;
+  let fetchSpy: any;
+  let consoleLogSpy: any;
+  let consoleWarnSpy: any;
+  let consoleErrorSpy: any;
 
   beforeEach(() => {
     // Spy on core methods
     coreInfoSpy = spyOn(core, "info").mockImplementation(() => {});
     coreWarningSpy = spyOn(core, "warning").mockImplementation(() => {});
     coreErrorSpy = spyOn(core, "error").mockImplementation(() => {});
+
+    // Spy on console methods
+    consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
+    consoleWarnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+    // Spy on fetch
+    fetchSpy = spyOn(global, "fetch");
   });
 
   afterEach(() => {
     coreInfoSpy.mockRestore();
     coreWarningSpy.mockRestore();
     coreErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    fetchSpy.mockRestore();
   });
 
-  const createMockOctokit = (permission: string) => {
-    return {
-      repos: {
-        getCollaboratorPermissionLevel: async () => ({
-          data: { permission },
-        }),
-      },
-    } as any;
-  };
-
-  const createContext = (): ParsedGitHubContext => ({
+  const createContext = (): GiteaContext => ({
     runId: "1234567890",
     eventName: "issue_comment",
     eventAction: "created",
@@ -54,8 +60,6 @@ describe("checkWritePermissions", () => {
         id: 123,
         body: "@claude test",
         user: { login: "test-user" },
-        html_url:
-          "https://github.com/test-owner/test-repo/issues/1#issuecomment-123",
       },
     } as any,
     entityNumber: 1,
@@ -78,225 +82,293 @@ describe("checkWritePermissions", () => {
     },
   });
 
-  test("should return true for admin permissions", async () => {
-    const mockOctokit = createMockOctokit("admin");
-    const context = createContext();
+  test("should return true for owner permissions", async () => {
+    fetchSpy.mockImplementation((url: string) => {
+      if (url.includes("/collaborators/test-user/permission")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            permission: "owner",
+            user: { login: "test-user" },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false } as Response);
+    });
 
-    const result = await checkWritePermissions(mockOctokit, context);
+    const context = createContext();
+    const result = await checkWritePermissions(context);
 
     expect(result).toBe(true);
-    expect(coreInfoSpy).toHaveBeenCalledWith(
+    expect(consoleLogSpy).toHaveBeenCalledWith(
       "Checking permissions for actor: test-user",
     );
-    expect(coreInfoSpy).toHaveBeenCalledWith(
-      "Permission level retrieved: admin",
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      "Permission level retrieved: owner",
     );
-    expect(coreInfoSpy).toHaveBeenCalledWith("Actor has write access: admin");
+    expect(consoleLogSpy).toHaveBeenCalledWith("Actor has write access: owner");
+  });
+
+  test("should return true for admin permissions", async () => {
+    fetchSpy.mockImplementation((url: string) => {
+      if (url.includes("/collaborators/test-user/permission")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            permission: "admin",
+            user: { login: "test-user" },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false } as Response);
+    });
+
+    const context = createContext();
+    const result = await checkWritePermissions(context);
+
+    expect(result).toBe(true);
+    expect(consoleLogSpy).toHaveBeenCalledWith("Actor has write access: admin");
   });
 
   test("should return true for write permissions", async () => {
-    const mockOctokit = createMockOctokit("write");
-    const context = createContext();
+    fetchSpy.mockImplementation((url: string) => {
+      if (url.includes("/collaborators/test-user/permission")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            permission: "write",
+            user: { login: "test-user" },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false } as Response);
+    });
 
-    const result = await checkWritePermissions(mockOctokit, context);
+    const context = createContext();
+    const result = await checkWritePermissions(context);
 
     expect(result).toBe(true);
-    expect(coreInfoSpy).toHaveBeenCalledWith("Actor has write access: write");
+    expect(consoleLogSpy).toHaveBeenCalledWith("Actor has write access: write");
   });
 
   test("should return false for read permissions", async () => {
-    const mockOctokit = createMockOctokit("read");
-    const context = createContext();
+    fetchSpy.mockImplementation((url: string) => {
+      if (url.includes("/collaborators/test-user/permission")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            permission: "read",
+            user: { login: "test-user" },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false } as Response);
+    });
 
-    const result = await checkWritePermissions(mockOctokit, context);
+    const context = createContext();
+    const result = await checkWritePermissions(context);
 
     expect(result).toBe(false);
-    expect(coreWarningSpy).toHaveBeenCalledWith(
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
       "Actor has insufficient permissions: read",
     );
   });
 
   test("should return false for none permissions", async () => {
-    const mockOctokit = createMockOctokit("none");
-    const context = createContext();
+    fetchSpy.mockImplementation((url: string) => {
+      if (url.includes("/collaborators/test-user/permission")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            permission: "none",
+            user: { login: "test-user" },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false } as Response);
+    });
 
-    const result = await checkWritePermissions(mockOctokit, context);
+    const context = createContext();
+    const result = await checkWritePermissions(context);
 
     expect(result).toBe(false);
-    expect(coreWarningSpy).toHaveBeenCalledWith(
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
       "Actor has insufficient permissions: none",
     );
   });
 
   test("should return true for bot user", async () => {
-    const mockOctokit = createMockOctokit("none");
     const context = createContext();
     context.actor = "test-bot[bot]";
 
-    const result = await checkWritePermissions(mockOctokit, context);
+    const result = await checkWritePermissions(context);
 
     expect(result).toBe(true);
+    expect(consoleLogSpy).toHaveBeenCalledWith("Actor is a bot: test-bot[bot]");
   });
 
   test("should throw error when permission check fails", async () => {
-    const error = new Error("API error");
-    const mockOctokit = {
-      repos: {
-        getCollaboratorPermissionLevel: async () => {
-          throw error;
-        },
-      },
-    } as any;
+    fetchSpy.mockImplementation((url: string) => {
+      if (url.includes("/collaborators/test-user/permission")) {
+        return Promise.reject(new Error("API error"));
+      }
+      return Promise.resolve({ ok: false } as Response);
+    });
+
     const context = createContext();
 
-    await expect(checkWritePermissions(mockOctokit, context)).rejects.toThrow(
+    await expect(checkWritePermissions(context)).rejects.toThrow(
       "Failed to check permissions for test-user: Error: API error",
     );
 
-    expect(coreErrorSpy).toHaveBeenCalledWith(
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
       "Failed to check permissions: Error: API error",
     );
   });
 
-  test("should call API with correct parameters", async () => {
-    let capturedParams: any;
-    const mockOctokit = {
-      repos: {
-        getCollaboratorPermissionLevel: async (params: any) => {
-          capturedParams = params;
-          return { data: { permission: "write" } };
-        },
-      },
-    } as any;
-    const context = createContext();
-
-    await checkWritePermissions(mockOctokit, context);
-
-    expect(capturedParams).toEqual({
-      owner: "test-owner",
-      repo: "test-repo",
-      username: "test-user",
-    });
-  });
-
   describe("allowed_non_write_users bypass", () => {
-    test("should bypass permission check for specific user when github_token provided", async () => {
-      const mockOctokit = createMockOctokit("read");
+    test("should bypass permission check for specific user when gitea_token provided", async () => {
+      fetchSpy.mockImplementation(() => {
+        return Promise.resolve({ ok: false } as Response);
+      });
+
       const context = createContext();
 
       const result = await checkWritePermissions(
-        mockOctokit,
         context,
         "test-user,other-user",
         true,
       );
 
       expect(result).toBe(true);
-      expect(coreWarningSpy).toHaveBeenCalledWith(
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
         "⚠️ SECURITY WARNING: Bypassing write permission check for test-user due to allowed_non_write_users configuration. This should only be used for workflows with very limited permissions.",
       );
     });
 
     test("should bypass permission check for all users with wildcard", async () => {
-      const mockOctokit = createMockOctokit("read");
+      fetchSpy.mockImplementation(() => {
+        return Promise.resolve({ ok: false } as Response);
+      });
+
       const context = createContext();
 
-      const result = await checkWritePermissions(
-        mockOctokit,
-        context,
-        "*",
-        true,
-      );
+      const result = await checkWritePermissions(context, "*", true);
 
       expect(result).toBe(true);
-      expect(coreWarningSpy).toHaveBeenCalledWith(
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
         "⚠️ SECURITY WARNING: Bypassing write permission check for test-user due to allowed_non_write_users='*'. This should only be used for workflows with very limited permissions.",
       );
     });
 
     test("should NOT bypass permission check when user not in allowed list", async () => {
-      const mockOctokit = createMockOctokit("read");
+      fetchSpy.mockImplementation((url: string) => {
+        if (url.includes("/collaborators/test-user/permission")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              permission: "read",
+              user: { login: "test-user" },
+            }),
+          } as Response);
+        }
+        return Promise.resolve({ ok: false } as Response);
+      });
+
       const context = createContext();
 
       const result = await checkWritePermissions(
-        mockOctokit,
         context,
         "other-user,another-user",
         true,
       );
 
       expect(result).toBe(false);
-      expect(coreWarningSpy).toHaveBeenCalledWith(
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
         "Actor has insufficient permissions: read",
       );
     });
 
-    test("should NOT bypass permission check when github_token not provided", async () => {
-      const mockOctokit = createMockOctokit("read");
+    test("should NOT bypass permission check when gitea_token not provided", async () => {
+      fetchSpy.mockImplementation((url: string) => {
+        if (url.includes("/collaborators/test-user/permission")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              permission: "read",
+              user: { login: "test-user" },
+            }),
+          } as Response);
+        }
+        return Promise.resolve({ ok: false } as Response);
+      });
+
       const context = createContext();
 
-      const result = await checkWritePermissions(
-        mockOctokit,
-        context,
-        "test-user",
-        false,
-      );
+      const result = await checkWritePermissions(context, "test-user", false);
 
       expect(result).toBe(false);
-      expect(coreWarningSpy).toHaveBeenCalledWith(
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
         "Actor has insufficient permissions: read",
       );
     });
 
     test("should NOT bypass permission check when allowed_non_write_users is empty", async () => {
-      const mockOctokit = createMockOctokit("read");
+      fetchSpy.mockImplementation((url: string) => {
+        if (url.includes("/collaborators/test-user/permission")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              permission: "read",
+              user: { login: "test-user" },
+            }),
+          } as Response);
+        }
+        return Promise.resolve({ ok: false } as Response);
+      });
+
       const context = createContext();
 
-      const result = await checkWritePermissions(
-        mockOctokit,
-        context,
-        "",
-        true,
-      );
+      const result = await checkWritePermissions(context, "", true);
 
       expect(result).toBe(false);
-      expect(coreWarningSpy).toHaveBeenCalledWith(
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
         "Actor has insufficient permissions: read",
       );
     });
 
     test("should handle whitespace in allowed_non_write_users list", async () => {
-      const mockOctokit = createMockOctokit("read");
+      fetchSpy.mockImplementation(() => {
+        return Promise.resolve({ ok: false } as Response);
+      });
+
       const context = createContext();
 
       const result = await checkWritePermissions(
-        mockOctokit,
         context,
         " test-user , other-user ",
         true,
       );
 
       expect(result).toBe(true);
-      expect(coreWarningSpy).toHaveBeenCalledWith(
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
         "⚠️ SECURITY WARNING: Bypassing write permission check for test-user due to allowed_non_write_users configuration. This should only be used for workflows with very limited permissions.",
       );
     });
 
     test("should bypass for bot users even when allowed_non_write_users is set", async () => {
-      const mockOctokit = createMockOctokit("none");
+      fetchSpy.mockImplementation(() => {
+        return Promise.resolve({ ok: false } as Response);
+      });
+
       const context = createContext();
       context.actor = "test-bot[bot]";
 
-      const result = await checkWritePermissions(
-        mockOctokit,
-        context,
-        "some-user",
-        true,
-      );
+      const result = await checkWritePermissions(context, "some-user", true);
 
       expect(result).toBe(true);
-      expect(coreInfoSpy).toHaveBeenCalledWith(
-        "Actor is a GitHub App: test-bot[bot]",
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        "Actor is a bot: test-bot[bot]",
       );
     });
   });

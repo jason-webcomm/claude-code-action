@@ -1,9 +1,7 @@
-import type { Octokits } from "../api/client";
-import { GITHUB_SERVER_URL } from "../api/config";
+import { GITEA_SERVER_URL } from "../api/config";
 import { $ } from "bun";
 
 export async function checkAndCommitOrDeleteBranch(
-  octokit: Octokits,
   owner: string,
   repo: string,
   claudeBranch: string | undefined,
@@ -17,18 +15,18 @@ export async function checkAndCommitOrDeleteBranch(
     // First check if the branch exists remotely
     let branchExistsRemotely = false;
     try {
-      await octokit.rest.repos.getBranch({
-        owner,
-        repo,
-        branch: claudeBranch,
-      });
-      branchExistsRemotely = true;
+      // Gitea API doesn't have a direct getBranch endpoint, we can check via refs
+      const response = await fetch(
+        `${process.env.GITEA_API_URL}/repos/${owner}/${repo}/git/refs/heads/${claudeBranch}`,
+        {
+          headers: {
+            Authorization: `token ${process.env.GITEA_TOKEN}`,
+          },
+        },
+      );
+      branchExistsRemotely = response.ok;
     } catch (error: any) {
-      if (error.status === 404) {
-        console.log(`Branch ${claudeBranch} does not exist remotely`);
-      } else {
-        console.error("Error checking if branch exists:", error);
-      }
+      console.error("Error checking if branch exists:", error);
     }
 
     // Only proceed if branch exists remotely
@@ -39,17 +37,14 @@ export async function checkAndCommitOrDeleteBranch(
       return { shouldDeleteBranch: false, branchLink: "" };
     }
 
-    // Check if Claude made any commits to the branch
+    // Check if Claude made any commits to the branch by comparing with base
     try {
-      const { data: comparison } =
-        await octokit.rest.repos.compareCommitsWithBasehead({
-          owner,
-          repo,
-          basehead: `${baseBranch}...${claudeBranch}`,
-        });
+      const args = ["rev-list", "--count", `${baseBranch}..${claudeBranch}`];
+      const result = await $`git ${args}`.quiet();
+      const commitCount = parseInt(result.stdout.toString().trim(), 10);
 
       // If there are no commits, check for uncommitted changes if not using commit signing
-      if (comparison.total_commits === 0) {
+      if (commitCount === 0) {
         if (!useCommitSigning) {
           console.log(
             `Branch ${claudeBranch} has no commits from Claude, checking for uncommitted changes...`,
@@ -68,7 +63,7 @@ export async function checkAndCommitOrDeleteBranch(
               await $`git add -A`;
 
               // Commit with a descriptive message
-              const runId = process.env.GITHUB_RUN_ID || "unknown";
+              const runId = process.env.GITEA_RUN_ID || "unknown";
               const commitMessage = `Auto-commit: Save uncommitted changes from Claude\n\nRun ID: ${runId}`;
               await $`git commit -m ${commitMessage}`;
 
@@ -80,7 +75,7 @@ export async function checkAndCommitOrDeleteBranch(
               );
 
               // Set branch link since we now have commits
-              const branchUrl = `${GITHUB_SERVER_URL}/${owner}/${repo}/tree/${claudeBranch}`;
+              const branchUrl = `${GITEA_SERVER_URL}/${owner}/${repo}/src/branch/${claudeBranch}`;
               branchLink = `\n[View branch](${branchUrl})`;
             } else {
               console.log(
@@ -91,7 +86,7 @@ export async function checkAndCommitOrDeleteBranch(
           } catch (gitError) {
             console.error("Error checking/committing changes:", gitError);
             // If we can't check git status, assume the branch might have changes
-            const branchUrl = `${GITHUB_SERVER_URL}/${owner}/${repo}/tree/${claudeBranch}`;
+            const branchUrl = `${GITEA_SERVER_URL}/${owner}/${repo}/src/branch/${claudeBranch}`;
             branchLink = `\n[View branch](${branchUrl})`;
           }
         } else {
@@ -102,13 +97,13 @@ export async function checkAndCommitOrDeleteBranch(
         }
       } else {
         // Only add branch link if there are commits
-        const branchUrl = `${GITHUB_SERVER_URL}/${owner}/${repo}/tree/${claudeBranch}`;
+        const branchUrl = `${GITEA_SERVER_URL}/${owner}/${repo}/src/branch/${claudeBranch}`;
         branchLink = `\n[View branch](${branchUrl})`;
       }
     } catch (error) {
       console.error("Error comparing commits on Claude branch:", error);
       // If we can't compare but the branch exists remotely, include the branch link
-      const branchUrl = `${GITHUB_SERVER_URL}/${owner}/${repo}/tree/${claudeBranch}`;
+      const branchUrl = `${GITEA_SERVER_URL}/${owner}/${repo}/src/branch/${claudeBranch}`;
       branchLink = `\n[View branch](${branchUrl})`;
     }
   }
@@ -116,11 +111,7 @@ export async function checkAndCommitOrDeleteBranch(
   // Delete the branch if it has no commits
   if (shouldDeleteBranch && claudeBranch) {
     try {
-      await octokit.rest.git.deleteRef({
-        owner,
-        repo,
-        ref: `heads/${claudeBranch}`,
-      });
+      await $`git push origin --delete ${claudeBranch}`;
       console.log(`✅ Deleted empty branch: ${claudeBranch}`);
     } catch (deleteError) {
       console.error(`Failed to delete branch ${claudeBranch}:`, deleteError);

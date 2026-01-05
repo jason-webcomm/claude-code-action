@@ -10,16 +10,12 @@ import {
   createBranchLink,
   createCommentBody,
 } from "./common";
-import { type Octokits } from "../../api/client";
-import {
-  isPullRequestReviewCommentEvent,
-  type ParsedGitHubContext,
-} from "../../context";
+import type { GiteaContext } from "../../context";
 import { updateClaudeComment } from "./update-claude-comment";
 
 export async function updateTrackingComment(
-  octokit: Octokits,
-  context: ParsedGitHubContext,
+  _giteaToken: string,
+  context: GiteaContext,
   commentId: number,
   branch?: string,
 ) {
@@ -37,18 +33,18 @@ export async function updateTrackingComment(
 
   // Update the existing comment with the branch link
   try {
-    const isPRReviewComment = isPullRequestReviewCommentEvent(context);
+    const isPRComment = context.isPR;
 
-    await updateClaudeComment(octokit.rest, {
+    await updateClaudeComment({
       owner,
       repo,
       commentId,
       body: updatedBody,
-      isPullRequestReviewComment: isPRReviewComment,
+      isPullRequestComment: isPRComment,
     });
 
     console.log(
-      `✅ Updated ${isPRReviewComment ? "PR review" : "issue"} comment ${commentId} with branch link`,
+      `✅ Updated ${isPRComment ? "PR" : "issue"} comment ${commentId} with branch link`,
     );
   } catch (error) {
     console.error("Error updating comment with branch link:", error);

@@ -1,31 +1,30 @@
 import type {
-  GitHubPullRequest,
-  GitHubIssue,
-  GitHubComment,
-  GitHubFile,
-  GitHubReview,
+  GiteaPullRequest,
+  GiteaIssue,
+  GiteaComment,
+  GiteaFile,
 } from "../types";
-import type { GitHubFileWithSHA } from "./fetcher";
+import type { GiteaFileWithSHA } from "./fetcher";
 import { sanitizeContent } from "../utils/sanitizer";
 
 export function formatContext(
-  contextData: GitHubPullRequest | GitHubIssue,
+  contextData: GiteaPullRequest | GiteaIssue,
   isPR: boolean,
 ): string {
   if (isPR) {
-    const prData = contextData as GitHubPullRequest;
+    const prData = contextData as GiteaPullRequest;
     return `PR Title: ${prData.title}
-PR Author: ${prData.author.login}
-PR Branch: ${prData.headRefName} -> ${prData.baseRefName}
+PR Author: ${prData.user.login}
+PR Branch: ${prData.head.label} -> ${prData.base.label}
 PR State: ${prData.state}
 PR Additions: ${prData.additions}
 PR Deletions: ${prData.deletions}
-Total Commits: ${prData.commits.totalCount}
-Changed Files: ${prData.files.nodes.length} files`;
+Total Commits: ${prData.commits}
+Changed Files: ${prData.changed_files} files`;
   } else {
-    const issueData = contextData as GitHubIssue;
+    const issueData = contextData as GiteaIssue;
     return `Issue Title: ${issueData.title}
-Issue Author: ${issueData.author.login}
+Issue Author: ${issueData.user.login}
 Issue State: ${issueData.state}`;
   }
 }
@@ -46,11 +45,11 @@ export function formatBody(
 }
 
 export function formatComments(
-  comments: GitHubComment[],
+  comments: GiteaComment[],
   imageUrlMap?: Map<string, string>,
 ): string {
   return comments
-    .filter((comment) => !comment.isMinimized)
+    .filter((comment) => comment.body)
     .map((comment) => {
       let body = comment.body;
 
@@ -62,83 +61,27 @@ export function formatComments(
 
       body = sanitizeContent(body);
 
-      return `[${comment.author.login} at ${comment.createdAt}]: ${body}`;
+      return `[${comment.user.login} at ${comment.created_at}]: ${body}`;
     })
     .join("\n\n");
 }
 
-export function formatReviewComments(
-  reviewData: { nodes: GitHubReview[] } | null,
-  imageUrlMap?: Map<string, string>,
-): string {
-  if (!reviewData || !reviewData.nodes) {
-    return "";
-  }
-
-  const formattedReviews = reviewData.nodes.map((review) => {
-    let reviewOutput = `[Review by ${review.author.login} at ${review.submittedAt}]: ${review.state}`;
-
-    if (review.body && review.body.trim()) {
-      let body = review.body;
-
-      if (imageUrlMap) {
-        for (const [originalUrl, localPath] of imageUrlMap) {
-          body = body.replaceAll(originalUrl, localPath);
-        }
-      }
-
-      const sanitizedBody = sanitizeContent(body);
-      reviewOutput += `\n${sanitizedBody}`;
-    }
-
-    if (
-      review.comments &&
-      review.comments.nodes &&
-      review.comments.nodes.length > 0
-    ) {
-      const comments = review.comments.nodes
-        .filter((comment) => !comment.isMinimized)
-        .map((comment) => {
-          let body = comment.body;
-
-          if (imageUrlMap) {
-            for (const [originalUrl, localPath] of imageUrlMap) {
-              body = body.replaceAll(originalUrl, localPath);
-            }
-          }
-
-          body = sanitizeContent(body);
-
-          return `  [Comment on ${comment.path}:${comment.line || "?"}]: ${body}`;
-        })
-        .join("\n");
-      if (comments) {
-        reviewOutput += `\n${comments}`;
-      }
-    }
-
-    return reviewOutput;
-  });
-
-  return formattedReviews.join("\n\n");
-}
-
-export function formatChangedFiles(changedFiles: GitHubFile[]): string {
+export function formatChangedFiles(changedFiles: GiteaFile[]): string {
   return changedFiles
     .map(
       (file) =>
-        `- ${file.path} (${file.changeType}) +${file.additions}/-${file.deletions}`,
+        `- ${file.filename} (${file.status}) +${file.additions}/-${file.deletions}`,
     )
     .join("\n");
 }
 
 export function formatChangedFilesWithSHA(
-  changedFiles: GitHubFileWithSHA[],
+  changedFiles: GiteaFileWithSHA[],
 ): string {
   return changedFiles
     .map(
       (file) =>
-        `- ${file.path} (${file.changeType}) +${file.additions}/-${file.deletions} SHA: ${file.sha}`,
+        `- ${file.filename} (${file.status}) +${file.additions}/-${file.deletions} SHA: ${file.sha}`,
     )
     .join("\n");
 }

@@ -2,7 +2,7 @@
 
 # Claude Code Action
 
-A general-purpose [Claude Code](https://claude.ai/code) action for GitHub PRs and issues that can answer questions and implement code changes. This action intelligently detects when to activate based on your workflow context—whether responding to @claude mentions, issue assignments, or executing automation tasks with explicit prompts. It supports multiple authentication methods including Anthropic direct API, Amazon Bedrock, Google Vertex AI, and Microsoft Foundry.
+A general-purpose [Claude Code](https://claude.ai/code) action for GitHub and Gitea PRs and issues that can answer questions and implement code changes. This action intelligently detects when to activate based on your workflow context—whether responding to @claude mentions, issue assignments, or executing automation tasks with explicit prompts. It supports multiple authentication methods including Anthropic direct API, Amazon Bedrock, Google Vertex AI, and Microsoft Foundry.
 
 ## Features
 
@@ -52,6 +52,8 @@ Each solution includes complete working examples, configuration details, and exp
 
 - **[Solutions Guide](./docs/solutions.md)** - **🎯 Ready-to-use automation patterns**
 - **[Migration Guide](./docs/migration-guide.md)** - **⭐ Upgrading from v0.x to v1.0**
+- **[Gitea Setup Guide](./docs/gitea-setup.md)** - **🚀 Setup for Gitea Actions**
+- **[GitHub to Gitea Migration Guide](./docs/migration-from-github.md)** - **🔄 Migrate from GitHub Actions**
 - [Setup Guide](./docs/setup.md) - Manual setup, custom GitHub apps, and security best practices
 - [Usage Guide](./docs/usage.md) - Basic usage, workflow configuration, and input parameters
 - [Custom Automations](./docs/custom-automations.md) - Examples of automated workflows and custom prompts
