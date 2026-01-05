@@ -478,6 +478,14 @@ ${sanitizeContent(eventData.commentBody)}
 </trigger_comment>`
     : ""
 }
+${
+  eventData.eventName === "issues" && githubData.contextData?.body
+    ? `
+<trigger_comment>
+${sanitizeContent(githubData.contextData.body)}
+</trigger_comment>`
+    : ""
+}
 
 Your request is in <trigger_comment> above${eventData.eventName === "issues" ? ` (or the ${entityType} body for assigned/labeled events)` : ""}.
 
@@ -582,6 +590,13 @@ ${
   eventData.eventName === "issue_comment" && eventData.commentBody
     ? `<trigger_comment>
 ${sanitizeContent(eventData.commentBody)}
+</trigger_comment>`
+    : ""
+}
+${
+  eventData.eventName === "issues" && githubData.contextData?.body
+    ? `<trigger_comment>
+${sanitizeContent(githubData.contextData.body)}
 </trigger_comment>`
     : ""
 }
