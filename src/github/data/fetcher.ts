@@ -159,9 +159,10 @@ export async function fetchGiteaData({
       );
       changedFiles = filesResult.data;
 
-      // Fetch PR comments
+      // Fetch PR comments using the issue comments endpoint
+      // (PRs are a type of issue in Gitea, so conversation comments live there)
       const commentsResult = await giteaGet<GiteaComment[]>(
-        PR_COMMENTS_ENDPOINT(owner, repo, parseInt(prNumber)),
+        ISSUE_COMMENTS_ENDPOINT(owner, repo, parseInt(prNumber)),
       );
       comments = filterCommentsToTriggerTime(commentsResult.data, triggerTime);
 
