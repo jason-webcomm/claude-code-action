@@ -139,7 +139,7 @@ export function parseGiteaContext(): GiteaContext {
     | GiteaWebhookPayload
     | WorkflowDispatchEvent
     | RepositoryDispatchEvent
-    | ScheduleEvent = {};
+    | ScheduleEvent = {} as any;
 
   try {
     const payloadPath = process.env.GITHUB_EVENT_PATH || "";
@@ -199,11 +199,23 @@ export function parseGiteaContext(): GiteaContext {
     }
     case "issue_comment": {
       const giteaPayload = payload as GiteaWebhookPayload;
+
+      // Extract PR number from pull_request_url if available
+      // Gitea provides pull_request_url in the format: https://host/owner/repo/pulls/123
+      let prNumber: number | undefined;
+      if (giteaPayload.pull_request_url) {
+        const match = giteaPayload.pull_request_url.match(/\/pulls\/(\d+)$/);
+        if (match) {
+          prNumber = parseInt(match[1], 10);
+        }
+      }
+
       return {
         ...commonFields,
         eventName: "issue_comment",
         payload: giteaPayload,
-        entityNumber: giteaPayload.number ?? giteaPayload.issue?.number,
+        entityNumber:
+          prNumber ?? giteaPayload.number ?? giteaPayload.issue?.number,
         isPR:
           giteaPayload.is_pull === true ||
           giteaPayload.pull_request !== undefined,

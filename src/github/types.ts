@@ -140,6 +140,7 @@ export type GiteaWebhookPayload = {
   repository?: GiteaRepository;
   sender?: GiteaAuthor;
   is_pull?: boolean; // Gitea-specific field to indicate if comment is on a PR
+  pull_request_url?: string; // Gitea-specific: URL for the pull request
 };
 
 // Gitea Actions types
