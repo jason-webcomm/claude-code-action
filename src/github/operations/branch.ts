@@ -128,6 +128,27 @@ export async function setupBranch(
   const { baseBranch, branchPrefix } = context.inputs;
   const isPR = context.isPR;
 
+  // Clone repository if not already a git repository
+  // Do this FIRST before any other git operations
+  console.log(`Checking if current directory is a git repository...`);
+  let isGitRepo = false;
+  try {
+    execFileSync("git", ["rev-parse", "--git-dir"], { stdio: "pipe" });
+    isGitRepo = true;
+    console.log(`Already in a git repository`);
+  } catch (err) {
+    console.log(`Not a git repository, cloning...`);
+    // Use Gitea token for authentication (username:token format)
+    // Note: Use GITEA_SERVER_URL (not GITEA_API_URL) for git clone operations
+    const cloneUrl = `${GITEA_SERVER_URL}/${owner}/${repo}.git`.replace(
+      "https://",
+      `https://${owner}:${giteaToken}@`,
+    );
+    console.log(`Cloning from: ${cloneUrl.replace(/:[^@]+@/, ":***@")}`);
+    execFileSync("git", ["clone", cloneUrl, "."], { stdio: "inherit" });
+    console.log(`Successfully cloned repository`);
+  }
+
   if (isPR) {
     const prData = githubData.contextData as GiteaPullRequest;
     const prState = prData.state;
@@ -235,24 +256,6 @@ export async function setupBranch(
   // - Max 50 chars (to allow for prefixes)
   const branchName = `${branchPrefix}${entityType}-${entityNumber}-${timestamp}`;
   const newBranch = branchName.toLowerCase().substring(0, 50);
-
-  // Clone repository if not already a git repository
-  console.log(`Checking if current directory is a git repository...`);
-  try {
-    execFileSync("git", ["rev-parse", "--git-dir"], { stdio: "pipe" });
-    console.log(`Already in a git repository`);
-  } catch (err) {
-    console.log(`Not a git repository, cloning...`);
-    // Use Gitea token for authentication (username:token format)
-    // Note: Use GITEA_SERVER_URL (not GITEA_API_URL) for git clone operations
-    const cloneUrl = `${GITEA_SERVER_URL}/${owner}/${repo}.git`.replace(
-      "https://",
-      `https://${owner}:${giteaToken}@`,
-    );
-    console.log(`Cloning from: ${cloneUrl.replace(/:[^@]+@/, ":***@")}`);
-    execFileSync("git", ["clone", cloneUrl, "."], { stdio: "inherit" });
-    console.log(`Successfully cloned repository`);
-  }
 
   try {
     // Get the SHA of the source branch to verify it exists
