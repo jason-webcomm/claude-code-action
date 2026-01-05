@@ -466,11 +466,11 @@ export function generatePrompt(
  * Generates a simplified prompt for tag mode (opt-in via USE_SIMPLE_PROMPT env var)
  * @internal
  */
-function generateSimplePrompt(
+async function generateSimplePrompt(
   context: PreparedContext,
   githubData: FetchDataResult,
   useCommitSigning: boolean = false,
-): string {
+): Promise<string> {
   const { contextData, comments, changedFilesWithSHA, imageUrlMap } =
     githubData;
   const { eventData } = context;
@@ -495,7 +495,15 @@ Images from comments have been saved to disk. Paths are in the formatted content
     : "No description provided";
 
   const entityType = eventData.isPR ? "pull request" : "issue";
-  const jobUrl = `${GITEA_SERVER_URL}/${context.repository}/actions/runs/${process.env.GITEA_RUN_ID}`;
+  // Fetch the correct run number from Gitea API
+  const giteaToken = process.env.GITEA_TOKEN!;
+  const [owner, repo] = context.repository.split("/");
+  const runNumber = await getGiteaRunNumber(
+    owner || "",
+    repo || "",
+    giteaToken,
+  );
+  const jobUrl = `${GITEA_SERVER_URL}/${context.repository}/actions/runs/${runNumber || process.env.GITEA_RUN_ID || ""}`;
 
   let promptContent = `You were tagged on a Gitea ${entityType} via "${context.triggerPhrase}". Read the request and decide how to help.
 
@@ -576,11 +584,11 @@ Always include at the bottom:
  * Generates the default prompt for tag mode
  * @internal
  */
-export function generateDefaultPrompt(
+export async function generateDefaultPrompt(
   context: PreparedContext,
   githubData: FetchDataResult,
   useCommitSigning: boolean = false,
-): string {
+): Promise<string> {
   // Use simplified prompt if opted in
   if (process.env.USE_SIMPLE_PROMPT === "true") {
     return generateSimplePrompt(context, githubData, useCommitSigning);
@@ -610,6 +618,16 @@ Images have been downloaded from Gitea comments and saved to disk. Their file pa
   const formattedBody = contextData?.body
     ? formatBody(contextData.body, imageUrlMap)
     : "No description provided";
+
+  // Fetch the correct run number from Gitea API
+  const giteaToken = process.env.GITEA_TOKEN!;
+  const [owner, repo] = context.repository.split("/");
+  const runNumber = await getGiteaRunNumber(
+    owner || "",
+    repo || "",
+    giteaToken,
+  );
+  const jobUrl = `${GITEA_SERVER_URL}/${context.repository}/actions/runs/${runNumber || process.env.GITEA_RUN_ID || ""}`;
 
   let promptContent = `You are Claude, an AI assistant designed to help with Gitea issues and pull requests. Think carefully as you analyze the context and respond appropriately. Here's the context for your current task:
 
@@ -719,7 +737,9 @@ ${eventData.eventName === "issue_comment" ? `   - For comment events: Your instr
       - Formulate a concise, technical, and helpful response based on the context.
       - Reference specific code with inline formatting or code blocks.
       - Include relevant file paths and line numbers when applicable.${
-        eventData.isPR && context.giteaContext?.inputs.includeFixLinks
+        eventData.isPR &&
+        context.giteaContext?.inputs.includeFixLinks &&
+        GITEA_SERVER_URL === "https://your-gitea-instance"
           ? `
       - When identifying issues that could be fixed, include an inline link: [Fix this →](https://claude.ai/code?q=<URI_ENCODED_INSTRUCTIONS>&repo=${context.repository})
         The query should be URI-encoded and include enough context for Claude Code to understand and fix the issue (file path, line numbers, branch name, what needs to change).`
@@ -790,7 +810,7 @@ ${
 - Display the todo list as a checklist in the Gitea comment and mark things off as you go.
 - REPOSITORY SETUP INSTRUCTIONS: The repository's CLAUDE.md file(s) contain critical repo-specific setup instructions, development guidelines, and preferences. Always read and follow these files, particularly the root CLAUDE.md, as they provide essential context for working with the codebase effectively.
 - Use h3 headers (###) for section titles in your comments, not h1 headers (#).
-- Your comment must always include the job run link in the format "[View job run](${GITEA_SERVER_URL}/${context.repository}/actions/runs/${process.env.GITEA_RUN_ID})" at the bottom of your response (branch link if there is one should also be included there).
+- Your comment must always include the job run link in the format "[View job run](${jobUrl})" at the bottom of your response (branch link if there is one should also be included there).
 
 CAPABILITIES AND LIMITATIONS:
 When users ask you to do something, be aware of what you can and cannot do. This section helps you understand how to respond when users request actions outside your scope.
