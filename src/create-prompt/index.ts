@@ -453,12 +453,12 @@ function getCommitInstructions(
   }
 }
 
-export function generatePrompt(
+export async function generatePrompt(
   context: PreparedContext,
   githubData: FetchDataResult,
   useCommitSigning: boolean,
   mode: Mode,
-): string {
+): Promise<string> {
   return mode.generatePrompt(context, githubData, useCommitSigning);
 }
 
@@ -940,7 +940,7 @@ export async function createPrompt(
     }
 
     // Generate the prompt directly
-    const promptContent = generatePrompt(
+    const promptContent = await generatePrompt(
       preparedContext,
       githubData,
       context.inputs.useCommitSigning,

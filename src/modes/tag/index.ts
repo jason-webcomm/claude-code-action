@@ -215,12 +215,12 @@ export const tagMode: Mode = {
     };
   },
 
-  generatePrompt(
+  async generatePrompt(
     context: PreparedContext,
     githubData: FetchDataResult,
     useCommitSigning: boolean,
-  ): string {
-    const defaultPrompt = generateDefaultPrompt(
+  ): Promise<string> {
+    const defaultPrompt = await generateDefaultPrompt(
       context,
       githubData,
       useCommitSigning,

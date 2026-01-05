@@ -64,7 +64,7 @@ export type Mode = {
     context: PreparedContext,
     githubData: FetchDataResult,
     useCommitSigning: boolean,
-  ): string;
+  ): Promise<string>;
 
   /**
    * Prepares the GitHub environment for this mode.

@@ -192,7 +192,7 @@ export const agentMode: Mode = {
     };
   },
 
-  generatePrompt(context: PreparedContext): string {
+  async generatePrompt(context: PreparedContext): Promise<string> {
     // Inject Gitea context as environment variables
     if (context.giteaContext) {
       const envVars = extractGiteaContext(context.giteaContext);
