@@ -224,10 +224,11 @@ runs:
           echo "Installing Claude Code v${CLAUDE_CODE_VERSION}..."
           for attempt in 1 2 3; do
             echo "Installation attempt $attempt..."
+            # Use --force to override any stale lock files from previous installations
             if command -v timeout &> /dev/null; then
-              timeout 120 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && break
+              timeout 120 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- --force $CLAUDE_CODE_VERSION" && break
             else
-              curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION" && break
+              curl -fsSL https://claude.ai/install.sh | bash -s -- --force "$CLAUDE_CODE_VERSION" && break
             fi
             if [ $attempt -eq 3 ]; then
               echo "Failed to install Claude Code after 3 attempts"
