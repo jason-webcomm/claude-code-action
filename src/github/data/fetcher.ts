@@ -188,36 +188,56 @@ export async function fetchGiteaData({
     throw new Error(`Failed to fetch ${isPR ? "PR" : "issue"} data`);
   }
 
-  // Compute SHAs for changed files
+  // Compute SHAs for changed files only if repository is checked out
   let changedFilesWithSHA: GiteaFileWithSHA[] = [];
   if (isPR && changedFiles.length > 0) {
-    changedFilesWithSHA = changedFiles.map((file) => {
-      // Don't compute SHA for deleted files
-      if (file.status === "deleted" || file.status === "removed") {
-        return {
-          ...file,
-          sha: "deleted",
-        };
-      }
+    // Check if we're in a git repository before attempting SHA computation
+    let isGitRepo = false;
+    try {
+      execFileSync("git", ["rev-parse", "--git-dir"], { stdio: "pipe" });
+      isGitRepo = true;
+    } catch (err) {
+      // Not a git repository yet, will be checked out later
+      console.log(
+        "Not in a git repository yet, skipping SHA computation for PR files",
+      );
+    }
 
-      try {
-        // Use git hash-object to compute the SHA for the current file content
-        const sha = execFileSync("git", ["hash-object", file.filename], {
-          encoding: "utf-8",
-        }).trim();
-        return {
-          ...file,
-          sha,
-        };
-      } catch (error) {
-        console.warn(`Failed to compute SHA for ${file.filename}:`, error);
-        // Return original file without SHA if computation fails
-        return {
-          ...file,
-          sha: "unknown",
-        };
-      }
-    });
+    if (isGitRepo) {
+      changedFilesWithSHA = changedFiles.map((file) => {
+        // Don't compute SHA for deleted files
+        if (file.status === "deleted" || file.status === "removed") {
+          return {
+            ...file,
+            sha: "deleted",
+          };
+        }
+
+        try {
+          // Use git hash-object to compute the SHA for the current file content
+          const sha = execFileSync("git", ["hash-object", file.filename], {
+            encoding: "utf-8",
+          }).trim();
+          return {
+            ...file,
+            sha,
+          };
+        } catch (error) {
+          console.warn(`Failed to compute SHA for ${file.filename}:`, error);
+          // Return original file without SHA if computation fails
+          return {
+            ...file,
+            sha: "unknown",
+          };
+        }
+      });
+    } else {
+      // Repository not checked out yet, mark SHAs as pending
+      changedFilesWithSHA = changedFiles.map((file) => ({
+        ...file,
+        sha: "pending",
+      }));
+    }
   }
 
   // Prepare all comments for image processing
