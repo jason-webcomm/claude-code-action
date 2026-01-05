@@ -139,6 +139,7 @@ export type GiteaWebhookPayload = {
   comment?: GiteaComment;
   repository?: GiteaRepository;
   sender?: GiteaAuthor;
+  is_pull?: boolean; // Gitea-specific field to indicate if comment is on a PR
 };
 
 // Gitea Actions types

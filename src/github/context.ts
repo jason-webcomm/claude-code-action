@@ -204,7 +204,9 @@ export function parseGiteaContext(): GiteaContext {
         eventName: "issue_comment",
         payload: giteaPayload,
         entityNumber: giteaPayload.number ?? giteaPayload.issue?.number,
-        isPR: giteaPayload.pull_request !== undefined,
+        isPR:
+          giteaPayload.is_pull === true ||
+          giteaPayload.pull_request !== undefined,
       };
     }
     case "pull_request": {
