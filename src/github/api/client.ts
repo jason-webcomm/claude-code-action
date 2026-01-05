@@ -79,6 +79,8 @@ export async function giteaGet<T>(
     });
   }
 
+  console.log(`Gitea API GET request: ${url.toString()}`);
+
   const response = await fetch(url.toString(), {
     headers: {
       Authorization: `token ${GITEA_TOKEN}`,
@@ -87,6 +89,10 @@ export async function giteaGet<T>(
   });
 
   if (!response.ok) {
+    console.error(
+      `Gitea API request failed: ${response.status} ${response.statusText}`,
+    );
+    console.error(`Request URL: ${url.toString()}`);
     throw new Error(
       `Gitea API request failed: ${response.status} ${response.statusText}`,
     );

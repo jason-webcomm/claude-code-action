@@ -136,6 +136,10 @@ export async function fetchGiteaData({
     throw new Error("Invalid repository format. Expected 'owner/repo'.");
   }
 
+  console.log(
+    `Fetching data for: owner=${owner}, repo=${repo}, prNumber=${prNumber}, isPR=${isPR}`,
+  );
+
   let contextData: GiteaPullRequest | GiteaIssue | null = null;
   let comments: GiteaComment[] = [];
   let changedFiles: GiteaFile[] = [];
@@ -143,9 +147,9 @@ export async function fetchGiteaData({
   try {
     if (isPR) {
       // Fetch PR data
-      const prResult = await giteaGet<GiteaPullRequest>(
-        PR_ENDPOINT(owner, repo, parseInt(prNumber)),
-      );
+      const endpoint = PR_ENDPOINT(owner, repo, parseInt(prNumber));
+      console.log(`Fetching PR from endpoint: ${endpoint}`);
+      const prResult = await giteaGet<GiteaPullRequest>(endpoint);
 
       contextData = prResult.data;
 
