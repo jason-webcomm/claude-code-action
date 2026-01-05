@@ -929,7 +929,8 @@ export async function createPrompt(
 
     // Fetch the correct run number from Gitea API for use in prompt generation
     const giteaToken = process.env.GITEA_TOKEN!;
-    const { owner, repo } = context.repository;
+    const owner = context.repository.owner;
+    const repo = context.repository.repo;
     const runNumber = await getGiteaRunNumber(owner, repo, giteaToken);
 
     // Set the correct run number as an environment variable for prompt generation
