@@ -259,7 +259,8 @@ export async function setupBranch(
 
   try {
     // Get the SHA of the source branch to verify it exists
-    const sourceBranchRefUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/git/refs/heads/${sourceBranch}`;
+    // Gitea API uses /branches/{branch} endpoint, not /git/refs/heads/{branch}
+    const sourceBranchRefUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/branches/${sourceBranch}`;
     const sourceBranchRefResponse = await fetch(sourceBranchRefUrl, {
       headers: {
         Accept: "application/json",
@@ -280,18 +281,14 @@ export async function setupBranch(
       JSON.stringify(sourceBranchRefData, null, 2),
     );
 
-    // Gitea API returns an array of refs, take the first one
-    const ref = Array.isArray(sourceBranchRefData)
-      ? sourceBranchRefData[0]
-      : sourceBranchRefData;
-
-    if (!ref.object) {
+    // Gitea API returns branch object with commit object containing SHA
+    if (!sourceBranchRefData.commit) {
       throw new Error(
-        `Source branch ref data missing 'object' field. Response: ${JSON.stringify(sourceBranchRefData)}`,
+        `Source branch ref data missing 'commit' field. Response: ${JSON.stringify(sourceBranchRefData)}`,
       );
     }
 
-    const currentSHA = ref.object.sha;
+    const currentSHA = sourceBranchRefData.commit.id;
     console.log(`Source branch SHA: ${currentSHA}`);
 
     // For commit signing, defer branch creation to the file ops server
