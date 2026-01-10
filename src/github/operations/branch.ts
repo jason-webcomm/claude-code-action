@@ -225,30 +225,51 @@ export async function setupBranch(
     console.log(`Using provided base branch: ${sourceBranch}`);
   } else {
     // No base branch provided, fetch the default branch to use as source
-    const repoUrl = `${GITEA_API_URL}/repos/${owner}/${repo}`;
-    console.log(`Fetching repository info from: ${repoUrl}`);
-    const repoResponse = await fetch(repoUrl, {
-      headers: {
-        Accept: "application/json",
-        Authorization: `token ${giteaToken}`,
-      },
-    });
-
-    if (!repoResponse.ok) {
-      throw new Error(
-        `Failed to fetch repository: ${repoResponse.status} - ${await repoResponse.text()}`,
+    // Use git to fetch the default branch from remote
+    console.log(`Fetching default branch from remote...`);
+    try {
+      execFileSync("git", ["fetch", "origin"], { stdio: "pipe" });
+      // Get the default branch from the remote
+      const remoteHead = execFileSync(
+        "git",
+        ["symbolic-ref", "refs/remotes/origin/HEAD"],
+        {
+          encoding: "utf-8",
+          stdio: "pipe",
+        },
+      ).trim();
+      // remoteHead format: refs/remotes/origin/main
+      sourceBranch = remoteHead.replace("refs/remotes/origin/", "");
+      console.log(`Fetched default branch from remote: ${sourceBranch}`);
+    } catch (err) {
+      // Fallback to trying common branch names
+      console.log(
+        `Could not determine default branch from remote, trying common names...`,
       );
+      const commonBranches = ["main", "master", "develop"];
+      for (const branch of commonBranches) {
+        try {
+          execFileSync(
+            "git",
+            ["ls-remote", "--heads", "--exit-code", "origin", branch],
+            {
+              stdio: "pipe",
+            },
+          );
+          sourceBranch = branch;
+          console.log(`Found branch: ${sourceBranch}`);
+          break;
+        } catch {
+          // Branch doesn't exist, try next
+        }
+      }
     }
 
-    const repoData = (await repoResponse.json()) as {
-      default_branch: string;
-      default_branch_name?: string;
-    };
-
-    // Gitea may use 'default_branch_name' instead of 'default_branch'
-    sourceBranch =
-      repoData.default_branch || repoData.default_branch_name || "main";
-    console.log(`Fetched default branch: ${sourceBranch}`);
+    if (!sourceBranch) {
+      throw new Error(
+        "Could not determine the default branch. Tried: main, master, develop. Please specify the base_branch input.",
+      );
+    }
   }
 
   // Validate sourceBranch is set
