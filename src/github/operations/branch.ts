@@ -222,9 +222,11 @@ export async function setupBranch(
   if (baseBranch) {
     // Use provided base branch for source
     sourceBranch = baseBranch;
+    console.log(`Using provided base branch: ${sourceBranch}`);
   } else {
     // No base branch provided, fetch the default branch to use as source
     const repoUrl = `${GITEA_API_URL}/repos/${owner}/${repo}`;
+    console.log(`Fetching repository info from: ${repoUrl}`);
     const repoResponse = await fetch(repoUrl, {
       headers: {
         Accept: "application/json",
@@ -238,8 +240,22 @@ export async function setupBranch(
       );
     }
 
-    const repoData = (await repoResponse.json()) as { default_branch: string };
-    sourceBranch = repoData.default_branch;
+    const repoData = (await repoResponse.json()) as {
+      default_branch: string;
+      default_branch_name?: string;
+    };
+
+    // Gitea may use 'default_branch_name' instead of 'default_branch'
+    sourceBranch =
+      repoData.default_branch || repoData.default_branch_name || "main";
+    console.log(`Fetched default branch: ${sourceBranch}`);
+  }
+
+  // Validate sourceBranch is set
+  if (!sourceBranch) {
+    throw new Error(
+      "sourceBranch is empty or undefined. Cannot proceed with branch setup.",
+    );
   }
 
   // Generate branch name for either an issue or closed/merged PR
@@ -258,38 +274,11 @@ export async function setupBranch(
   const newBranch = branchName.toLowerCase().substring(0, 50);
 
   try {
-    // Get the SHA of the source branch to verify it exists
-    // Gitea API uses /branches/{branch} endpoint, not /git/refs/heads/{branch}
-    const sourceBranchRefUrl = `${GITEA_API_URL}/repos/${owner}/${repo}/branches/${sourceBranch}`;
-    const sourceBranchRefResponse = await fetch(sourceBranchRefUrl, {
-      headers: {
-        Accept: "application/json",
-        Authorization: `token ${giteaToken}`,
-      },
-    });
-
-    if (!sourceBranchRefResponse.ok) {
-      throw new Error(
-        `Failed to fetch source branch ref: ${sourceBranchRefResponse.status} - ${await sourceBranchRefResponse.text()}`,
-      );
-    }
-
-    console.log(`Fetching source branch ref from: ${sourceBranchRefUrl}`);
-    const sourceBranchRefData = (await sourceBranchRefResponse.json()) as any;
-    console.log(
-      `Source branch ref response:`,
-      JSON.stringify(sourceBranchRefData, null, 2),
-    );
-
-    // Gitea API returns branch object with commit object containing SHA
-    if (!sourceBranchRefData.commit) {
-      throw new Error(
-        `Source branch ref data missing 'commit' field. Response: ${JSON.stringify(sourceBranchRefData)}`,
-      );
-    }
-
-    const currentSHA = sourceBranchRefData.commit.id;
-    console.log(`Source branch SHA: ${currentSHA}`);
+    // Skip the API branch check and rely directly on git commands.
+    // Some Gitea instances may not have the /branches/{branch} endpoint enabled
+    // or accessible. Since we've already cloned the repo, we can use git to
+    // fetch and verify the branch exists.
+    console.log(`Skipping API branch check, will use git commands directly`);
 
     // For commit signing, defer branch creation to the file ops server
     if (context.inputs.useCommitSigning) {
