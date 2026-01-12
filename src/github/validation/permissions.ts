@@ -73,6 +73,14 @@ export async function checkWritePermissions(
         console.log(
           `Permission level retrieved (collaborator): ${permissionLevel}`,
         );
+        console.log(`Full collaborator response:`, JSON.stringify(data));
+        // If permission is "none", try checking repo access for team-based permissions
+        if (permissionLevel === "none") {
+          console.log(
+            `Collaborator endpoint returned 'none', checking repo access for team-based permissions...`,
+          );
+          permissionLevel = null;
+        }
       } else if (response.status === 403 || response.status === 404) {
         // User might not be a direct collaborator (could be team-based access)
         // Try to check repo access by fetching repo details
@@ -114,7 +122,11 @@ export async function checkWritePermissions(
             };
           };
 
-          console.log(`Repo permissions:`, repoData.permissions);
+          console.log(
+            `Repo permissions:`,
+            JSON.stringify(repoData.permissions),
+          );
+          console.log(`Full repo response:`, JSON.stringify(repoData));
 
           // Check if user has push/write access
           if (repoData.permissions.push || repoData.permissions.admin) {
