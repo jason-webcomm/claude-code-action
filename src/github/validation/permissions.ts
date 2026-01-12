@@ -47,9 +47,8 @@ export async function checkWritePermissions(
       return true;
     }
 
-    // Check permissions using Gitea REST API
-    // The /collaborators/{actor}/permission endpoint correctly checks the actor's permissions
-    // including team-based access
+    // Step 1: Check using the collaborators endpoint
+    // This endpoint correctly checks the actor's permissions including team-based access
     const response = await fetch(
       `${GITEA_API_URL}/repos/${repository.owner}/${repository.repo}/collaborators/${actor}/permission`,
       {
@@ -60,37 +59,126 @@ export async function checkWritePermissions(
       },
     );
 
-    if (!response.ok) {
-      // If the endpoint fails, the user likely doesn't have access
+    if (response.ok) {
+      const data = (await response.json()) as {
+        permission: string;
+        user: {
+          login: string;
+        };
+      };
+
       console.log(
-        `Permission check failed with status ${response.status}. User may not have access to this repo.`,
+        `Permission level retrieved (collaborator): ${data.permission}`,
       );
-      return false;
+      console.log(`Full collaborator response:`, JSON.stringify(data));
+
+      const permissionLevel = data.permission;
+
+      // If collaborator endpoint returns a valid write permission, we're done
+      if (
+        permissionLevel === GITEA_PERMISSION_LEVELS.OWNER ||
+        permissionLevel === GITEA_PERMISSION_LEVELS.ADMIN ||
+        permissionLevel === GITEA_PERMISSION_LEVELS.WRITE
+      ) {
+        console.log(`Actor has write access: ${permissionLevel}`);
+        return true;
+      }
+
+      // If permission is "none", we need to check team membership
+      if (permissionLevel === "none") {
+        console.log(
+          `Collaborator endpoint returned 'none', checking team membership...`,
+        );
+      } else {
+        // User has read or no access
+        console.warn(`Actor has insufficient permissions: ${permissionLevel}`);
+        return false;
+      }
+    } else if (response.status === 403 || response.status === 404) {
+      // User doesn't have access, check team membership
+      console.log(
+        `User not a direct collaborator (status ${response.status}), checking team membership...`,
+      );
+    } else {
+      throw new Error(
+        `Failed to check permissions: ${response.status} ${response.statusText}`,
+      );
     }
 
-    const data = (await response.json()) as {
-      permission: string;
-      user: {
-        login: string;
-      };
-    };
+    // Step 2: Check team membership by querying teams with access to this repo
+    // and checking if the actor is a member of any team with write permission
+    try {
+      const teamsResponse = await fetch(
+        `${GITEA_API_URL}/repos/${repository.owner}/${repository.repo}/teams`,
+        {
+          headers: {
+            Authorization: `token ${GITEA_TOKEN}`,
+            Accept: "application/json",
+          },
+        },
+      );
 
-    console.log(
-      `Permission level retrieved (collaborator): ${data.permission}`,
-    );
-    console.log(`Full collaborator response:`, JSON.stringify(data));
+      if (!teamsResponse.ok) {
+        console.log(
+          `Failed to fetch teams (status ${teamsResponse.status}). User may not have access.`,
+        );
+        return false;
+      }
 
-    const permissionLevel = data.permission;
+      const teams = (await teamsResponse.json()) as Array<{
+        id: number;
+        name: string;
+        permission: string;
+        units: string[];
+      }>;
 
-    if (
-      permissionLevel === GITEA_PERMISSION_LEVELS.OWNER ||
-      permissionLevel === GITEA_PERMISSION_LEVELS.ADMIN ||
-      permissionLevel === GITEA_PERMISSION_LEVELS.WRITE
-    ) {
-      console.log(`Actor has write access: ${permissionLevel}`);
-      return true;
-    } else {
-      console.warn(`Actor has insufficient permissions: ${permissionLevel}`);
+      console.log(`Found ${teams.length} teams with access to this repo`);
+
+      // Check if actor is a member of any team with write permission
+      for (const team of teams) {
+        // Check if team has write or admin permission
+        if (
+          team.permission === "write" ||
+          team.permission === "admin" ||
+          team.permission === "owner"
+        ) {
+          console.log(
+            `Checking if actor ${actor} is a member of team ${team.name} (permission: ${team.permission})...`,
+          );
+
+          // Check if actor is a member of this team
+          const memberResponse = await fetch(
+            `${GITEA_API_URL}/teams/${team.id}/members/${actor}`,
+            {
+              headers: {
+                Authorization: `token ${GITEA_TOKEN}`,
+                Accept: "application/json",
+              },
+            },
+          );
+
+          if (memberResponse.ok) {
+            console.log(
+              `Actor ${actor} is a member of team ${team.name} with ${team.permission} permission`,
+            );
+            return true;
+          } else if (memberResponse.status === 404) {
+            // Not a member of this team, continue checking
+          } else {
+            console.log(
+              `Error checking team membership: ${memberResponse.status} ${memberResponse.statusText}`,
+            );
+          }
+        }
+      }
+
+      // Actor is not a member of any team with write permission
+      console.warn(
+        `Actor ${actor} is not a member of any team with write permission`,
+      );
+      return false;
+    } catch (error) {
+      console.error(`Error checking team membership: ${error}`);
       return false;
     }
   } catch (error) {

@@ -185,6 +185,12 @@ describe("checkWritePermissions", () => {
           }),
         } as Response);
       }
+      if (url.includes("/repos/test-owner/test-repo/teams")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [],
+        } as Response);
+      }
       return Promise.resolve({ ok: false } as Response);
     });
 
@@ -193,7 +199,7 @@ describe("checkWritePermissions", () => {
 
     expect(result).toBe(false);
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      "Actor has insufficient permissions: none",
+      "Actor test-user is not a member of any team with write permission",
     );
   });
 
