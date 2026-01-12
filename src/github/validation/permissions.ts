@@ -146,9 +146,11 @@ export async function checkWritePermissions(
             `Checking if actor ${actor} is a member of team ${team.name} (permission: ${team.permission})...`,
           );
 
-          // Check if actor is a member of this team
-          const memberResponse = await fetch(
-            `${GITEA_API_URL}/teams/${team.id}/members/${actor}`,
+          // Check if actor is a member of this team by fetching all members
+          // /teams/{id}/members/{username} returns 403 if token doesn't have permission
+          // so we use /teams/{id}/members and check the list instead
+          const membersResponse = await fetch(
+            `${GITEA_API_URL}/teams/${team.id}/members`,
             {
               headers: {
                 Authorization: `token ${GITEA_TOKEN}`,
@@ -157,17 +159,28 @@ export async function checkWritePermissions(
             },
           );
 
-          if (memberResponse.ok) {
+          if (!membersResponse.ok) {
+            console.log(
+              `Failed to fetch members for team ${team.name}: ${membersResponse.status} ${membersResponse.statusText}`,
+            );
+            continue;
+          }
+
+          const members = (await membersResponse.json()) as Array<{
+            id: number;
+            login: string;
+            username: string;
+          }>;
+
+          const isMember = members.some(
+            (m) => m.login === actor || m.username === actor,
+          );
+
+          if (isMember) {
             console.log(
               `Actor ${actor} is a member of team ${team.name} with ${team.permission} permission`,
             );
             return true;
-          } else if (memberResponse.status === 404) {
-            // Not a member of this team, continue checking
-          } else {
-            console.log(
-              `Error checking team membership: ${memberResponse.status} ${memberResponse.statusText}`,
-            );
           }
         }
       }
