@@ -104,7 +104,7 @@ describe("checkWritePermissions", () => {
       "Checking permissions for actor: test-user",
     );
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      "Permission level retrieved: owner",
+      "Permission level retrieved (collaborator): owner",
     );
     expect(consoleLogSpy).toHaveBeenCalledWith("Actor has write access: owner");
   });
